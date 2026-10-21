@@ -12,7 +12,8 @@
 - `sim/defense_ai.gd`: 방어 AI. 자기 진영이 본 적만 보고, 플레이어와 같은 명령만 쓴다.
 - `data/unit_types.json`: 1단계 병과 수치 (기획서 '1단계 병과 수치 초안').
 - `data/stages/`: 스테이지 파일. 스테이지는 코드가 아니라 데이터다.
-- `scenes/main.tscn`: 확인용 화면. 스페이스로 한 턴씩 실행, R로 처음부터.
+- `scenes/main.tscn`: 확인용 화면. 스페이스로 한 턴씩 실행, R로 처음부터. 부대는 NATO 부대 기호(`scripts/unit_symbol.gd`)로 그린다.
+- `assets/fonts/`: 한글 글꼴 Pretendard (SIL Open Font License 1.1, `OFL-Pretendard.txt`).
 - `tests/`: 헤드리스 테스트.
 
 ## 실행

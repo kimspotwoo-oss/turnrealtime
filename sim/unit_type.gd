@@ -4,6 +4,10 @@ extends RefCounted
 
 var id: String
 var name: String
+## 지도 기호 (NATO 부대 기호). icon: "infantry", "armor", "anti_tank", "mortar".
+## echelon: "squad", "section", "platoon", "company".
+var symbol_icon: String
+var symbol_echelon: String
 ## 구성원 묶음 목록: {"kind": "man" | "vehicle" | "gun", "count": int, "hp": float, "shield": float}
 var elements: Array[Dictionary] = []
 var armor_front: float
@@ -23,6 +27,9 @@ static func from_dict(id: String, d: Dictionary) -> UnitType:
 	var t := UnitType.new()
 	t.id = id
 	t.name = d.get("name", id)
+	var symbol: Dictionary = d.get("symbol", {})
+	t.symbol_icon = symbol.get("icon", "infantry")
+	t.symbol_echelon = symbol.get("echelon", "platoon")
 	for e in d["elements"]:
 		t.elements.append({
 			"kind": e["kind"],

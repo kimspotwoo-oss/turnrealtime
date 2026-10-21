@@ -3,7 +3,10 @@ extends Node2D
 ## 스페이스 = 실행기간 한 턴, R = 처음부터. 정식 화면과 입력은 다음 단계에서 만든다.
 
 const STAGE := "res://data/stages/practice.json"
-const TILE_PX := 14.0
+const TILE_PX := 20.0
+const SYMBOL_PX := 20.0
+## 플레이어 진영. 기호는 이 진영 기준으로 아군·적을 나눈다.
+const PLAYER_SIDE := "player"
 const TERRAIN_COLORS := {
 	"open": Color(0.62, 0.68, 0.45),
 	"road": Color(0.55, 0.5, 0.4),
@@ -67,10 +70,13 @@ func _draw() -> void:
 				color = color.lightened(0.3)
 			Morale.State.PANIC, Morale.State.ROUTED:
 				color = color.lightened(0.6)
+		var tile_color := color
+		tile_color.a = 0.45
 		for t in u.tiles():
-			draw_rect(Rect2(t.x * TILE_PX + 1, t.y * TILE_PX + 1, TILE_PX - 2, TILE_PX - 2), color)
+			draw_rect(Rect2(t.x * TILE_PX + 1, t.y * TILE_PX + 1, TILE_PX - 2, TILE_PX - 2), tile_color)
 		var c := (u.center + Vector2(0.5, 0.5)) * TILE_PX
-		draw_line(c, c + u.facing * TILE_PX, Color.BLACK, 2.0)
+		draw_line(c, c + u.facing * TILE_PX * 1.2, Color.BLACK, 2.0)
+		UnitSymbol.draw(self, c, SYMBOL_PX, u.type.symbol_icon, u.type.symbol_echelon, u.side != PLAYER_SIDE, color)
 	for s in battle.shells:
 		draw_circle(((s["point"] as Vector2) + Vector2(0.5, 0.5)) * TILE_PX, 3.0, Color.YELLOW)
 

@@ -1,6 +1,7 @@
 {
 	"infantry_platoon": {
 		"name": "보병 소대",
+		"symbol": {"icon": "infantry", "echelon": "platoon"},
 		"elements": [{"kind": "man", "count": 30, "hp": 80}],
 		"armor": {"front": 0, "rear": 0},
 		"tiles": {"min": 2, "max": 8, "default": 6},
@@ -16,6 +17,7 @@
 	},
 	"medium_tank_platoon": {
 		"name": "중형 전차 소대",
+		"symbol": {"icon": "armor", "echelon": "platoon"},
 		"elements": [{"kind": "vehicle", "count": 3, "hp": 640}],
 		"armor": {"front": 160, "rear": 75},
 		"tiles": {"min": 3, "max": 6, "default": 3},
@@ -30,6 +32,7 @@
 	},
 	"at_gun": {
 		"name": "대전차포 분대",
+		"symbol": {"icon": "anti_tank", "echelon": "squad"},
 		"elements": [{"kind": "gun", "count": 1, "hp": 350, "shield": 70}, {"kind": "man", "count": 5, "hp": 80}],
 		"armor": {"front": 0, "rear": 0},
 		"tiles": {"min": 1, "max": 2, "default": 1},
@@ -43,6 +46,7 @@
 	},
 	"mortar_platoon": {
 		"name": "박격포 소대",
+		"symbol": {"icon": "mortar", "echelon": "platoon"},
 		"elements": [{"kind": "gun", "count": 3, "hp": 350}, {"kind": "man", "count": 12, "hp": 80}],
 		"armor": {"front": 0, "rear": 0},
 		"tiles": {"min": 1, "max": 3, "default": 2},
