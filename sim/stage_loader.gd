@@ -42,7 +42,33 @@ static func build(data: Dictionary, unit_types: Dictionary, seed_override := -1)
 			rects.append(_rect(r))
 		capture[side] = rects
 	battle.victory = {"capture": capture, "defender": v.get("defender", "")}
+	for d in data.get("front_lines", []):
+		var line := FrontLine.new(d["id"], d["side"], _points(d["points"]), _vec(d.get("enemy_dir", [0, -1])))
+		line.units.assign(d.get("units", []))
+		line.reserves.assign(d.get("reserves", []))
+		line.stance = STANCES[d.get("stance", "hold")]
+		line.offensive = _points(d.get("offensive", []))
+		line.retreat = _points(d.get("retreat", []))
+		line.apply(battle)
+		battle.front_lines.append(line)
+	for d in data.get("ai", []):
+		match d.get("type", "defense"):
+			"defense":
+				var objectives: Array[Rect2i] = []
+				for side in capture:
+					if side != d["side"]:
+						objectives.append_array(capture[side])
+				var ai := DefenseAI.new(d["side"], battle.front_line(d["front_line"]), objectives)
+				ai.personality = d.get("personality", "careful")
+				battle.ai_players.append(ai)
 	return battle
+
+
+static func _points(a: Array) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for p in a:
+		out.append(_vec(p))
+	return out
 
 
 static func _vec(a: Array) -> Vector2:

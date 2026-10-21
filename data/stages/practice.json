@@ -1,7 +1,7 @@
 {
 	"id": "practice",
 	"name": "연습 스테이지",
-	"description": "가상의 들판. 공격측(플레이어)은 두 마을을 점령하고, 방어측(AI)은 숲 가장자리에 전선을 긋고 지킨다.",
+	"description": "가상의 들판. 공격측(플레이어)은 전선을 묶어 두 마을로 전진하고, 방어측(AI)은 숲 가장자리에 전선을 긋고 예비대로 막는다.",
 	"seed": 1943,
 	"turn_seconds": 60,
 	"turn_limit": 25,
@@ -21,24 +21,20 @@
 			{"terrain": "forest", "rect": [48, 27, 6, 4]}
 		]
 	},
-	"sides": {
-		"player": {"name": "공격측"},
-		"ai": {"name": "방어측"}
-	},
+	"sides": {"player": {"name": "공격측"}, "ai": {"name": "방어측"}},
 	"units": [
-		{"id": "p_inf1", "side": "player", "type": "infantry_platoon", "pos": [8, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [18, 10]},
-		{"id": "p_inf2", "side": "player", "type": "infantry_platoon", "pos": [17, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [20, 10]},
-		{"id": "p_inf3", "side": "player", "type": "infantry_platoon", "pos": [26, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [22, 10]},
-		{"id": "p_inf4", "side": "player", "type": "infantry_platoon", "pos": [35, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [38, 10]},
-		{"id": "p_inf5", "side": "player", "type": "infantry_platoon", "pos": [44, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [40, 10]},
-		{"id": "p_inf6", "side": "player", "type": "infantry_platoon", "pos": [53, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [42, 10]},
+		{"id": "p_inf1", "side": "player", "type": "infantry_platoon", "pos": [8, 33], "formation": "line", "tiles": 6, "stance": "attack"},
+		{"id": "p_inf2", "side": "player", "type": "infantry_platoon", "pos": [17, 33], "formation": "line", "tiles": 6, "stance": "attack"},
+		{"id": "p_inf3", "side": "player", "type": "infantry_platoon", "pos": [26, 33], "formation": "line", "tiles": 6, "stance": "attack"},
+		{"id": "p_inf4", "side": "player", "type": "infantry_platoon", "pos": [35, 33], "formation": "line", "tiles": 6, "stance": "attack"},
+		{"id": "p_inf5", "side": "player", "type": "infantry_platoon", "pos": [44, 33], "formation": "line", "tiles": 6, "stance": "attack"},
+		{"id": "p_inf6", "side": "player", "type": "infantry_platoon", "pos": [53, 33], "formation": "line", "tiles": 6, "stance": "attack"},
 		{"id": "p_tank1", "side": "player", "type": "medium_tank_platoon", "pos": [20, 36], "formation": "line", "stance": "attack", "move": [20, 20]},
 		{"id": "p_tank2", "side": "player", "type": "medium_tank_platoon", "pos": [40, 36], "formation": "line", "stance": "attack", "move": [40, 20]},
 		{"id": "p_at1", "side": "player", "type": "at_gun", "pos": [12, 37], "stance": "hold"},
 		{"id": "p_at2", "side": "player", "type": "at_gun", "pos": [48, 37], "stance": "hold"},
 		{"id": "p_mortar1", "side": "player", "type": "mortar_platoon", "pos": [27, 38], "stance": "hold"},
 		{"id": "p_mortar2", "side": "player", "type": "mortar_platoon", "pos": [33, 38], "stance": "hold"},
-
 		{"id": "a_inf1", "side": "ai", "type": "infantry_platoon", "pos": [13, 18], "facing": [0, 1], "formation": "line", "tiles": 6, "stance": "hold", "retreat": [19, 9]},
 		{"id": "a_inf2", "side": "ai", "type": "infantry_platoon", "pos": [23, 18], "facing": [0, 1], "formation": "line", "tiles": 6, "stance": "hold", "retreat": [21, 9]},
 		{"id": "a_inf3", "side": "ai", "type": "infantry_platoon", "pos": [37, 18], "facing": [0, 1], "formation": "line", "tiles": 6, "stance": "hold", "retreat": [39, 9]},
@@ -52,8 +48,28 @@
 		{"id": "a_mortar1", "side": "ai", "type": "mortar_platoon", "pos": [26, 2], "facing": [0, 1], "stance": "hold"},
 		{"id": "a_mortar2", "side": "ai", "type": "mortar_platoon", "pos": [34, 2], "facing": [0, 1], "stance": "hold"}
 	],
-	"victory": {
-		"capture": {"player": [[16, 6, 8, 6], [36, 6, 8, 6]]},
-		"defender": "ai"
-	}
+	"victory": {"capture": {"player": [[16, 6, 8, 6], [36, 6, 8, 6]]}, "defender": "ai"},
+	"front_lines": [
+		{
+			"id": "player_main",
+			"side": "player",
+			"points": [[5, 33], [56, 33]],
+			"enemy_dir": [0, -1],
+			"units": ["p_inf1", "p_inf2", "p_inf3", "p_inf4", "p_inf5", "p_inf6"],
+			"stance": "attack",
+			"offensive": [[12, 20], [48, 20]],
+			"retreat": [[5, 37], [56, 37]]
+		},
+		{
+			"id": "ai_main",
+			"side": "ai",
+			"points": [[8, 18], [52, 18]],
+			"enemy_dir": [0, 1],
+			"units": ["a_inf1", "a_inf2", "a_inf3", "a_inf4"],
+			"reserves": ["a_inf5", "a_inf6", "a_tank1", "a_tank2"],
+			"stance": "hold",
+			"retreat": [[14, 12], [46, 12]]
+		}
+	],
+	"ai": [{"side": "ai", "type": "defense", "front_line": "ai_main", "personality": "careful"}]
 }
