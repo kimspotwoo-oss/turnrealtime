@@ -47,6 +47,10 @@ var cooldowns := {}
 var reaction := {}
 ## 간접 사격 명령: {} (자동), {"mode": "point", "point": Vector2}, {"mode": "predict", "target": String}
 var fire_order := {}
+## 마지막으로 쏜 목표 (화면 표시용): 부대 id, 간접 사격 지점, 쏜 틱.
+var last_target := ""
+var last_fire_point = null
+var last_fire_tick := -1000
 
 ## 지난 턴의 초당 이동 (예측 사격용).
 var velocity := Vector2.ZERO

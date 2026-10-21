@@ -8,6 +8,8 @@ extends Node2D
 const STAGE := "res://data/stages/practice.json"
 const TILE_PX := 20.0
 const SYMBOL_PX := 20.0
+## 사격선을 보여 주는 시간 (틱).
+const FIRE_LINE_TICKS := 4
 const PLAYER_SIDE := "player"
 ## 실행기간 재생 속도 (게임 초 / 실제 초).
 const SPEEDS := [10.0, 30.0, 120.0]
@@ -312,6 +314,9 @@ func _draw() -> void:
 	for u in battle.units:
 		if u.is_alive() and is_shown(u):
 			_draw_unit(u)
+	for u in battle.units:
+		if u.is_alive() and is_shown(u):
+			_draw_fire(u)
 	for u in _own_selected():
 		_draw_orders(u)
 	for s in battle.shells:
@@ -360,6 +365,29 @@ func _draw_orders(u: BattleUnit) -> void:
 			if t != null and t.is_alive():
 				draw_arc(_px(t.center), TILE_PX * 1.5, 0.0, TAU, 24, Color.ORANGE_RED, 2.0)
 				draw_dashed_line(_px(t.center), _px(t.center + t.velocity * 20.0), Color.ORANGE_RED, 1.5, 4.0)
+
+
+## 최근에 쏜 사격을 쏜 부대에서 목표로 선을 긋는다. 오래될수록 흐려진다.
+## 아군 사격은 노란색, 적 사격은 주황색이다.
+func _draw_fire(u: BattleUnit) -> void:
+	var age := battle.tick - u.last_fire_tick
+	if age > FIRE_LINE_TICKS:
+		return
+	var color := Color(1.0, 0.9, 0.2) if u.side == PLAYER_SIDE else Color(1.0, 0.45, 0.1)
+	color.a = 1.0 - float(age) / (FIRE_LINE_TICKS + 1)
+	var to = null
+	var t := battle.unit_by_id(u.last_target)
+	if t != null and t.is_alive() and is_shown(t):
+		to = _px(t.center)
+	elif u.last_fire_point != null:
+		to = _px(u.last_fire_point)
+	if to == null:
+		return
+	var from := _px(u.center)
+	draw_line(from, to, color, 2.0)
+	var dir: Vector2 = (to - from).normalized()
+	draw_line(to, to - dir.rotated(0.4) * 9.0, color, 2.0)
+	draw_line(to, to - dir.rotated(-0.4) * 9.0, color, 2.0)
 
 
 func _draw_line_points(points: PackedVector2Array, color: Color, width: float, dashed := false) -> void:
@@ -512,6 +540,11 @@ func _describe_selection() -> String:
 	var line := Orders.line_of(battle, u.id)
 	if line != null:
 		lines.append("%s %s%s" % [line.id, "예비대" if line.reserves.has(u.id) else "전선", " (개별 명령)" if u.individual else ""])
+	var t := battle.unit_by_id(u.last_target)
+	if t != null and battle.tick - u.last_fire_tick <= 10:
+		lines.append("사격 대상: %s %s" % [t.type.name, t.id])
+	elif u.last_fire_point != null and battle.tick - u.last_fire_tick <= 10:
+		lines.append("사격 대상: 지점 포격")
 	if u.type.setup_ticks > 0 and not u.deployed:
 		lines.append("전개 중 %d초" % u.setup_left)
 	return "\n".join(lines)

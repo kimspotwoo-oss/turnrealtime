@@ -37,7 +37,7 @@
 		"armor": {"front": 0, "rear": 0},
 		"tiles": {"min": 1, "max": 2, "default": 1},
 		"sight_m": 400,
-		"speed_tiles_per_min": {"foot": 1},
+		"speed_tiles_per_min": {"foot": 3},
 		"setup_seconds": 60,
 		"melee_power": 0.5,
 		"weapons": [

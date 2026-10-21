@@ -408,6 +408,9 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 	var unseen := not can_see(target, u)
 	var target_tiles := target.tiles()
 	hits.append(_hit(target, -1, 0.0, w.suppression * n, u, unseen))
+	u.last_target = target.id
+	u.last_fire_point = null
+	u.last_fire_tick = tick
 	for i in n:
 		var idx := _pick_element(target, w)
 		if idx < 0:
@@ -472,6 +475,7 @@ func _pick_element(target: BattleUnit, w: WeaponType) -> int:
 
 func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 	var aim = null
+	var aimed: BattleUnit = null
 	var observed := true
 	match u.fire_order.get("mode", ""):
 		"point":
@@ -482,9 +486,9 @@ func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 			if t != null and t.is_alive() and side_knows(u.side, t):
 				aim = predict_aim(u, w, t)
 		_:
-			var t := _auto_indirect_target(u, w)
-			if t != null:
-				aim = t.center
+			aimed = _auto_indirect_target(u, w)
+			if aimed != null:
+				aim = aimed.center
 	if aim == null:
 		return false
 	var dist := u.center.distance_to(aim)
@@ -497,6 +501,9 @@ func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 		var p := Combat.scatter_point(rng, u.center, aim, w, mult)
 		var flight := maxi(1, ceili(u.center.distance_to(p) / w.shell_speed_tiles))
 		shells.append({"land_tick": tick + flight, "point": p, "weapon": w, "attacker": u})
+	u.last_target = u.fire_order.get("target", "") if u.fire_order.get("mode", "") == "predict" else (aimed.id if aimed != null else "")
+	u.last_fire_point = aim
+	u.last_fire_tick = tick
 	return true
 
 
