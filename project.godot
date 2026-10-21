@@ -15,6 +15,10 @@ window/size/viewport_width=1280
 window/size/viewport_height=860
 window/handheld/orientation=0
 
+[gui]
+
+theme/custom_font="res://assets/fonts/Pretendard-Regular.woff2"
+
 [rendering]
 
 renderer/rendering_method="mobile"
