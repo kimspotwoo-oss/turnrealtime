@@ -1,0 +1,57 @@
+{
+	"infantry_platoon": {
+		"name": "보병 소대",
+		"elements": [{"kind": "man", "count": 30, "hp": 80}],
+		"armor": {"front": 0, "rear": 0},
+		"tiles": {"min": 2, "max": 8, "default": 6},
+		"sight_m": 600,
+		"speed_tiles_per_min": {"foot": 3},
+		"setup_seconds": 0,
+		"melee_power": 1.0,
+		"weapons": [
+			{"id": "rifle", "name": "소총", "scale": "man", "count": 27, "damage": 16, "pen": [1, 1], "range_m": 300, "interval_s": 4, "accuracy": [0.15, 0.05], "suppression": 1.0},
+			{"id": "lmg", "name": "경기관총", "scale": "man", "count": 3, "damage": 4, "pen": [1, 1], "range_m": 300, "interval_s": 1, "accuracy": [0.15, 0.05], "suppression": 3.0},
+			{"id": "close_at", "name": "근접 대전차 무기", "scale": "man", "count": 3, "damage": 120, "pen": [100, 100], "range_m": 25, "interval_s": 10, "accuracy": [0.5, 0.5], "suppression": 0.0, "close_at": true}
+		]
+	},
+	"medium_tank_platoon": {
+		"name": "중형 전차 소대",
+		"elements": [{"kind": "vehicle", "count": 3, "hp": 640}],
+		"armor": {"front": 160, "rear": 75},
+		"tiles": {"min": 3, "max": 6, "default": 3},
+		"sight_m": 400,
+		"speed_tiles_per_min": {"vehicle": 10, "road": 20},
+		"setup_seconds": 0,
+		"melee_power": 0.5,
+		"weapons": [
+			{"id": "main_gun", "name": "주포", "scale": "vehicle", "count": 3, "damage": 160, "pen": [120, 80], "range_m": 800, "interval_s": 6, "accuracy": [0.6, 0.25], "suppression": 5.0},
+			{"id": "mg", "name": "기관총", "scale": "vehicle", "count": 3, "damage": 4, "pen": [1, 1], "range_m": 300, "interval_s": 1, "accuracy": [0.15, 0.05], "suppression": 2.0}
+		]
+	},
+	"at_gun": {
+		"name": "대전차포 분대",
+		"elements": [{"kind": "gun", "count": 1, "hp": 350, "shield": 70}, {"kind": "man", "count": 5, "hp": 80}],
+		"armor": {"front": 0, "rear": 0},
+		"tiles": {"min": 1, "max": 2, "default": 1},
+		"sight_m": 400,
+		"speed_tiles_per_min": {"foot": 1},
+		"setup_seconds": 60,
+		"melee_power": 0.5,
+		"weapons": [
+			{"id": "pak", "name": "대전차포", "scale": "gun", "count": 1, "damage": 160, "pen": [210, 190], "range_m": 1200, "interval_s": 5, "accuracy": [0.7, 0.3], "suppression": 2.0}
+		]
+	},
+	"mortar_platoon": {
+		"name": "박격포 소대",
+		"elements": [{"kind": "gun", "count": 3, "hp": 350}, {"kind": "man", "count": 12, "hp": 80}],
+		"armor": {"front": 0, "rear": 0},
+		"tiles": {"min": 1, "max": 3, "default": 2},
+		"sight_m": 400,
+		"speed_tiles_per_min": {"foot": 3},
+		"setup_seconds": 60,
+		"melee_power": 0.5,
+		"weapons": [
+			{"id": "mortar", "name": "81mm 박격포", "scale": "gun", "count": 3, "damage": 80, "pen": [0, 0], "range_m": 2400, "min_range_m": 100, "interval_s": 10, "suppression": 15.0, "indirect": true, "blast_tiles": 1, "shell_speed_mps": 150, "scatter": {"ratio": 0.03, "max_m": 50, "angle_deg": 4}}
+		]
+	}
+}
