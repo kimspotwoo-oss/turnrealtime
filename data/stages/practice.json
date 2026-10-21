@@ -1,0 +1,59 @@
+{
+	"id": "practice",
+	"name": "연습 스테이지",
+	"description": "가상의 들판. 공격측(플레이어)은 두 마을을 점령하고, 방어측(AI)은 숲 가장자리에 전선을 긋고 지킨다.",
+	"seed": 1943,
+	"turn_seconds": 60,
+	"turn_limit": 25,
+	"map": {
+		"width": 60,
+		"height": 40,
+		"base": "open",
+		"areas": [
+			{"terrain": "road", "rect": [30, 0, 1, 40]},
+			{"terrain": "road", "rect": [0, 9, 60, 1]},
+			{"terrain": "village", "rect": [16, 6, 8, 6]},
+			{"terrain": "village", "rect": [36, 6, 8, 6]},
+			{"terrain": "forest", "rect": [8, 16, 12, 3]},
+			{"terrain": "forest", "rect": [26, 15, 8, 4]},
+			{"terrain": "forest", "rect": [42, 16, 12, 3]},
+			{"terrain": "forest", "rect": [4, 26, 6, 5]},
+			{"terrain": "forest", "rect": [48, 27, 6, 4]}
+		]
+	},
+	"sides": {
+		"player": {"name": "공격측"},
+		"ai": {"name": "방어측"}
+	},
+	"units": [
+		{"id": "p_inf1", "side": "player", "type": "infantry_platoon", "pos": [8, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [18, 10]},
+		{"id": "p_inf2", "side": "player", "type": "infantry_platoon", "pos": [17, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [20, 10]},
+		{"id": "p_inf3", "side": "player", "type": "infantry_platoon", "pos": [26, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [22, 10]},
+		{"id": "p_inf4", "side": "player", "type": "infantry_platoon", "pos": [35, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [38, 10]},
+		{"id": "p_inf5", "side": "player", "type": "infantry_platoon", "pos": [44, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [40, 10]},
+		{"id": "p_inf6", "side": "player", "type": "infantry_platoon", "pos": [53, 33], "formation": "line", "tiles": 6, "stance": "attack", "move": [42, 10]},
+		{"id": "p_tank1", "side": "player", "type": "medium_tank_platoon", "pos": [20, 36], "formation": "line", "stance": "attack", "move": [20, 20]},
+		{"id": "p_tank2", "side": "player", "type": "medium_tank_platoon", "pos": [40, 36], "formation": "line", "stance": "attack", "move": [40, 20]},
+		{"id": "p_at1", "side": "player", "type": "at_gun", "pos": [12, 37], "stance": "hold"},
+		{"id": "p_at2", "side": "player", "type": "at_gun", "pos": [48, 37], "stance": "hold"},
+		{"id": "p_mortar1", "side": "player", "type": "mortar_platoon", "pos": [27, 38], "stance": "hold"},
+		{"id": "p_mortar2", "side": "player", "type": "mortar_platoon", "pos": [33, 38], "stance": "hold"},
+
+		{"id": "a_inf1", "side": "ai", "type": "infantry_platoon", "pos": [13, 18], "facing": [0, 1], "formation": "line", "tiles": 6, "stance": "hold", "retreat": [19, 9]},
+		{"id": "a_inf2", "side": "ai", "type": "infantry_platoon", "pos": [23, 18], "facing": [0, 1], "formation": "line", "tiles": 6, "stance": "hold", "retreat": [21, 9]},
+		{"id": "a_inf3", "side": "ai", "type": "infantry_platoon", "pos": [37, 18], "facing": [0, 1], "formation": "line", "tiles": 6, "stance": "hold", "retreat": [39, 9]},
+		{"id": "a_inf4", "side": "ai", "type": "infantry_platoon", "pos": [47, 18], "facing": [0, 1], "formation": "line", "tiles": 6, "stance": "hold", "retreat": [41, 9]},
+		{"id": "a_inf5", "side": "ai", "type": "infantry_platoon", "pos": [20, 8], "facing": [0, 1], "formation": "line", "tiles": 4, "stance": "attack"},
+		{"id": "a_inf6", "side": "ai", "type": "infantry_platoon", "pos": [40, 8], "facing": [0, 1], "formation": "line", "tiles": 4, "stance": "attack"},
+		{"id": "a_tank1", "side": "ai", "type": "medium_tank_platoon", "pos": [27, 5], "facing": [0, 1], "formation": "line", "stance": "attack"},
+		{"id": "a_tank2", "side": "ai", "type": "medium_tank_platoon", "pos": [34, 5], "facing": [0, 1], "formation": "line", "stance": "attack"},
+		{"id": "a_at1", "side": "ai", "type": "at_gun", "pos": [20, 11], "facing": [0, 1], "stance": "hold"},
+		{"id": "a_at2", "side": "ai", "type": "at_gun", "pos": [40, 11], "facing": [0, 1], "stance": "hold"},
+		{"id": "a_mortar1", "side": "ai", "type": "mortar_platoon", "pos": [26, 2], "facing": [0, 1], "stance": "hold"},
+		{"id": "a_mortar2", "side": "ai", "type": "mortar_platoon", "pos": [34, 2], "facing": [0, 1], "stance": "hold"}
+	],
+	"victory": {
+		"capture": {"player": [[16, 6, 8, 6], [36, 6, 8, 6]]},
+		"defender": "ai"
+	}
+}
