@@ -32,6 +32,10 @@ var stance := Stance.HOLD
 var move_target = null
 var retreat_point: Vector2
 var moved_this_tick := false
+## 플레이어가 따로 내린 명령. 전선 명령보다 우선한다.
+var individual := false
+## 공세선에서 앞서 나가 나머지를 기다리는 중.
+var pace_hold := false
 var deployed := true
 var setup_left := 0
 

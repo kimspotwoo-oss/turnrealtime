@@ -37,6 +37,9 @@ var turn_limit := 20
 var shells: Array[Dictionary] = []
 ## 승리 조건: {"capture": {진영: [Rect2i, ...]}, "defender": 진영}
 var victory := {}
+var front_lines: Array[FrontLine] = []
+## 준비기간마다 plan_turn() 을 부를 AI 들.
+var ai_players: Array = []
 var winner := ""
 
 ## 칸 → 그 칸을 차지한 부대들
@@ -73,11 +76,30 @@ func side_knows(side: String, target: BattleUnit) -> bool:
 	return _side_known.get(side, {}).has(target.id)
 
 
+## 그 진영이 지금 아는 적. AI 는 이것만 보고 판단한다.
+func known_enemies(side: String) -> Array[BattleUnit]:
+	var out: Array[BattleUnit] = []
+	for eid in _side_known.get(side, {}):
+		var e := unit_by_id(eid)
+		if e.is_alive():
+			out.append(e)
+	return out
+
+
+func front_line(id: String) -> FrontLine:
+	for line in front_lines:
+		if line.id == id:
+			return line
+	return null
+
+
 ## 실행기간 한 턴. 승패가 나면 그 틱에서 멈춘다.
 func run_turn() -> void:
 	if winner != "":
 		return
 	turn += 1
+	for ai in ai_players:
+		ai.plan_turn(self)
 	for u in units:
 		u.turn_start_center = u.center
 	for i in turn_seconds:
@@ -93,6 +115,9 @@ func run_turn() -> void:
 func step() -> void:
 	tick += 1
 	# 1. 명령 도착: 1단계에는 통신 지연이 없어서 준비기간 명령이 그대로 유효하다.
+	#    전선은 공세선 보조와 예비대 투입만 한다.
+	for line in front_lines:
+		line.update(self)
 	_move()
 	_rebuild_occupancy()
 	_update_vision()
@@ -134,7 +159,7 @@ func _move() -> void:
 			target = null
 		elif u.stance == BattleUnit.Stance.RETREAT and target == u.retreat_point:
 			retreating = true
-		if target == null:
+		if target == null or (u.pace_hold and not retreating):
 			_settle(u)
 			continue
 		var to: Vector2 = target - u.center
@@ -471,7 +496,7 @@ func _auto_indirect_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 		var d := u.center.distance_to(e.center)
 		if d < w.min_range_tiles or d > w.range_tiles:
 			continue
-		if _friendly_near(u.side, e.center, w.blast_tiles + FRIENDLY_FIRE_MARGIN):
+		if friendly_near(u.side, e.center, w.blast_tiles + FRIENDLY_FIRE_MARGIN):
 			continue
 		if d < best_d:
 			best_d = d
@@ -479,7 +504,7 @@ func _auto_indirect_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 	return best
 
 
-func _friendly_near(side: String, p: Vector2, radius: float) -> bool:
+func friendly_near(side: String, p: Vector2, radius: float) -> bool:
 	for o in units:
 		if o.side == side and o.is_alive() and Vector2(o.nearest_tile_to(p)).distance_to(p) <= radius:
 			return true

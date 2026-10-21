@@ -54,6 +54,10 @@ func _draw() -> void:
 	for y in map.height:
 		for x in map.width:
 			draw_rect(Rect2(x * TILE_PX, y * TILE_PX, TILE_PX, TILE_PX), TERRAIN_COLORS[map.terrain_at(Vector2i(x, y))])
+	for line in battle.front_lines:
+		var color: Color = SIDE_COLORS.get(line.side, Color.WHITE)
+		_draw_polyline(line.points, color, 3.0)
+		_draw_polyline(line.offensive, color.lightened(0.4), 2.0)
 	for u in battle.units:
 		if not u.is_alive():
 			continue
@@ -69,3 +73,12 @@ func _draw() -> void:
 		draw_line(c, c + u.facing * TILE_PX, Color.BLACK, 2.0)
 	for s in battle.shells:
 		draw_circle(((s["point"] as Vector2) + Vector2(0.5, 0.5)) * TILE_PX, 3.0, Color.YELLOW)
+
+
+func _draw_polyline(points: PackedVector2Array, color: Color, width: float) -> void:
+	if points.size() < 2:
+		return
+	var px := PackedVector2Array()
+	for p in points:
+		px.append((p + Vector2(0.5, 0.5)) * TILE_PX)
+	draw_polyline(px, color, width)
