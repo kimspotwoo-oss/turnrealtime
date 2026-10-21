@@ -54,6 +54,7 @@ func apply(battle: Battle) -> void:
 		if u.individual:
 			continue
 		u.facing = facing_at(points if offensive.is_empty() else offensive, f)
+		u.arrive_facing = u.facing
 		u.set_formation("line", roundi(width))
 		u.stance = stance
 		u.move_target = target
@@ -110,6 +111,7 @@ func send_to_slot(r: BattleUnit, f: float, target: Vector2) -> void:
 	_slots[r.id] = {"slot": f, "start": r.center, "target": target}
 	r.individual = false
 	r.facing = facing_at(points, f)
+	r.arrive_facing = r.facing
 	r.stance = stance
 	r.move_target = target
 	if not retreat.is_empty():

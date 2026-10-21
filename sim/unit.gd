@@ -30,6 +30,8 @@ var recent_losses: Array[Vector2i] = []
 var stance := Stance.HOLD
 ## 이동 목표 (칸 좌표) 또는 null.
 var move_target = null
+## 도착하면 바라볼 방향 (전선 자리처럼 정해진 경우) 또는 null. 가는 동안은 가는 쪽을 본다.
+var arrive_facing = null
 var retreat_point: Vector2
 var moved_this_tick := false
 ## 플레이어가 따로 내린 명령. 전선 명령보다 우선한다.
