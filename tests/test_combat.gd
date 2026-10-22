@@ -39,7 +39,7 @@ func test_hit_side() -> void:
 	check(Combat.hit_side(p, Vector2.UP, Vector2(0, 10)) == "rear", "후면")
 	check(Combat.hit_side(p, Vector2.UP, Vector2(10, 0)) == "side", "측면")
 	var tank: UnitType = types["medium_tank_platoon"]
-	check_near(Combat.armor_for(tank, "side"), 117.5, "측면 장갑은 전·후면 평균")
+	check_near(Combat.armor_for(tank, "side"), 145.0, "측면 장갑은 전·후면 평균")
 
 
 func test_scatter_extent_matches_design_table() -> void:

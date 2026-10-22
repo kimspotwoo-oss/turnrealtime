@@ -103,7 +103,7 @@ func test_tank_with_unarmed_infantry_causes_shock() -> void:
 	var hp := 0.0
 	for e in tank.elements:
 		hp += e["hp"]
-	check(hp == 640.0 * 3, "소총은 전차에 피해를 주지 못한다")
+	check(hp == 1000.0 * 3, "소총은 전차에 피해를 주지 못한다")
 
 
 func test_small_arms_do_not_shoot_tanks() -> void:

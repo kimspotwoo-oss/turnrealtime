@@ -317,6 +317,9 @@ func _draw() -> void:
 	for u in battle.units:
 		if u.is_alive() and is_shown(u):
 			_draw_fire(u)
+	for u in selected:
+		if u.is_alive() and is_shown(u):
+			_draw_ranges(u)
 	for u in _own_selected():
 		_draw_orders(u)
 	for s in battle.shells:
@@ -369,6 +372,22 @@ func _draw_orders(u: BattleUnit) -> void:
 
 ## 최근에 쏜 사격을 쏜 부대에서 목표로 선을 긋는다. 오래될수록 흐려진다.
 ## 아군 사격은 노란색, 적 사격은 주황색이다.
+## 고른 부대의 무기별 사거리 원. 같은 사거리는 한 번만, 칸 하나 남짓한 근접 무기는 뺀다.
+func _draw_ranges(u: BattleUnit) -> void:
+	var color: Color = SIDE_COLORS.get(u.side, Color.WHITE).darkened(0.1)
+	var font := ThemeDB.fallback_font
+	var drawn := {}
+	for w in u.type.weapons:
+		if w.range_tiles < 2.0 or drawn.has(w.range_tiles):
+			continue
+		drawn[w.range_tiles] = true
+		var r := (w.range_tiles + 0.5) * TILE_PX
+		draw_arc(_px(u.center), r, 0.0, TAU, 96, color, 2.0)
+		draw_string(font, _px(u.center) + Vector2(4, -r - 4), "%s %dm" % [w.name, roundi(w.range_tiles * BattleMap.TILE_METERS)], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, color)
+		if w.min_range_tiles > 0.0:
+			draw_arc(_px(u.center), w.min_range_tiles * TILE_PX, 0.0, TAU, 48, color.darkened(0.3), 1.0)
+
+
 func _draw_fire(u: BattleUnit) -> void:
 	var age := battle.tick - u.last_fire_tick
 	if age > FIRE_LINE_TICKS:
@@ -533,6 +552,10 @@ func _describe_selection() -> String:
 	var lines: Array[String] = ["%s  %s" % [u.type.name, u.id]]
 	var kinds := "vehicle" if u.type.is_vehicle() else "man"
 	lines.append("병력 %d / %d" % [u.alive_count(kinds), u.initial_count(kinds)])
+	var ranges: Array[String] = []
+	for w in u.type.weapons:
+		ranges.append("%s %dm" % [w.name, roundi(w.range_tiles * BattleMap.TILE_METERS)])
+	lines.append("사거리: " + ", ".join(ranges))
 	if u.side != PLAYER_SIDE:
 		return "\n".join(lines)
 	lines.append("사기 %d (%s)   제압 %d" % [u.morale, STATE_NAMES[u.state()], u.suppression])
