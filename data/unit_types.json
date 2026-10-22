@@ -18,8 +18,8 @@
 	"medium_tank_platoon": {
 		"name": "중형 전차 소대",
 		"symbol": {"icon": "armor", "echelon": "platoon"},
-		"elements": [{"kind": "vehicle", "count": 3, "hp": 640}],
-		"armor": {"front": 160, "rear": 75},
+		"elements": [{"kind": "vehicle", "count": 3, "hp": 1000}],
+		"armor": {"front": 200, "rear": 90},
 		"tiles": {"min": 3, "max": 6, "default": 3},
 		"sight_m": 400,
 		"speed_tiles_per_min": {"vehicle": 10, "road": 20},
@@ -37,7 +37,7 @@
 		"armor": {"front": 0, "rear": 0},
 		"tiles": {"min": 1, "max": 2, "default": 1},
 		"sight_m": 400,
-		"speed_tiles_per_min": {"foot": 1},
+		"speed_tiles_per_min": {"foot": 3},
 		"setup_seconds": 60,
 		"melee_power": 0.5,
 		"weapons": [

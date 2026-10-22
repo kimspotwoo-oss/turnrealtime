@@ -77,3 +77,14 @@ func test_reserve_fills_broken_slot() -> void:
 	check(line.units.has("r") and not line.units.has("u0"), "예비대가 무너진 부대 자리에 들어간다")
 	check(r.move_target == slot_target, "예비대가 그 자리로 간다")
 	check(line.reserves.is_empty(), "예비대 목록에서 빠진다")
+
+
+func test_units_face_enemy_after_small_adjustment() -> void:
+	var b := _battle_with_line(1)
+	var u := b.unit_by_id("u0")
+	u.center = Vector2(29.5, 18)
+	b.front_lines[0].apply(b)
+	for i in 30:
+		b.step()
+	check(u.facing.is_equal_approx(Vector2(0, 1)), "자리를 옆으로 조금 고쳐도 적 쪽을 본다: %s" % u.facing)
+	check(u.tiles()[0].y == u.tiles()[1].y, "횡대는 가로로 선다")

@@ -103,7 +103,7 @@ func test_tank_with_unarmed_infantry_causes_shock() -> void:
 	var hp := 0.0
 	for e in tank.elements:
 		hp += e["hp"]
-	check(hp == 640.0 * 3, "소총은 전차에 피해를 주지 못한다")
+	check(hp == 1000.0 * 3, "소총은 전차에 피해를 주지 못한다")
 
 
 func test_small_arms_do_not_shoot_tanks() -> void:
@@ -195,3 +195,17 @@ func _run_practice(seed_value: int, turns: int) -> int:
 	for i in turns:
 		b.run_turn()
 	return b.state_hash()
+
+
+func test_shooter_remembers_target() -> void:
+	var b := _battle()
+	var a := b.add_unit(BattleUnit.new("a", "red", _duelist(), Vector2(10, 10), Vector2.DOWN))
+	b.add_unit(BattleUnit.new("c", "blue", _crowd(5), Vector2(10, 15), Vector2.UP))
+	b.step()
+	a.reaction["c"] = 0
+	b.step()
+	check(a.last_target == "c" and a.last_fire_tick >= 0, "화면에 그릴 사격 목표를 기억한다")
+
+
+func test_at_gun_moves_at_infantry_speed() -> void:
+	check(types["at_gun"].speed["foot"] == types["infantry_platoon"].speed["foot"], "대전차포는 보병과 같은 속도")

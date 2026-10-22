@@ -12,13 +12,19 @@
 - `sim/defense_ai.gd`: 방어 AI. 자기 진영이 본 적만 보고, 플레이어와 같은 명령만 쓴다.
 - `data/unit_types.json`: 1단계 병과 수치 (기획서 '1단계 병과 수치 초안').
 - `data/stages/`: 스테이지 파일. 스테이지는 코드가 아니라 데이터다.
-- `scenes/main.tscn`: 확인용 화면. 스페이스로 한 턴씩 실행, R로 처음부터. 부대는 NATO 부대 기호(`scripts/unit_symbol.gd`)로 그린다.
+- `sim/orders.gd`: 준비기간 명령 (이동, 태세, 대형, 후퇴지, 포격, 전선 긋기·공세선·후퇴선·예비대).
+- `scenes/main.tscn`, `scripts/battle_screen.gd`: 집중전투 화면. 부대는 NATO 부대 기호(`scripts/unit_symbol.gd`)로 그린다.
 - `assets/fonts/`: 한글 글꼴 Pretendard (SIL Open Font License 1.1, `OFL-Pretendard.txt`).
 - `tests/`: 헤드리스 테스트.
 
 ## 실행
 
-Godot 4.3에서 프로젝트를 열고 실행(F5)하면 연습 스테이지 확인 화면이 뜬다.
+Godot 4.3에서 프로젝트를 열고 실행(F5)하면 연습 스테이지가 뜬다.
+
+- 왼쪽 클릭: 부대 고르기·명령 지점 찍기, 왼쪽 끌기: 여러 부대 고르기 (Shift: 더하기)
+- 오른쪽 클릭 또는 Enter: 선 그리기 마치기, Esc: 취소
+- 가운데 끌기: 화면 이동, 휠: 확대·축소
+- 스페이스 또는 "실행 ▶": 실행기간 1턴, F1: 적 전체 보기 (시험용)
 
 테스트:
 

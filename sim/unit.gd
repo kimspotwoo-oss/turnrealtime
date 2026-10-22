@@ -30,6 +30,8 @@ var recent_losses: Array[Vector2i] = []
 var stance := Stance.HOLD
 ## 이동 목표 (칸 좌표) 또는 null.
 var move_target = null
+## 도착하면 바라볼 방향 (전선 자리처럼 정해진 경우) 또는 null. 가는 동안은 가는 쪽을 본다.
+var arrive_facing = null
 var retreat_point: Vector2
 var moved_this_tick := false
 ## 플레이어가 따로 내린 명령. 전선 명령보다 우선한다.
@@ -45,6 +47,10 @@ var cooldowns := {}
 var reaction := {}
 ## 간접 사격 명령: {} (자동), {"mode": "point", "point": Vector2}, {"mode": "predict", "target": String}
 var fire_order := {}
+## 마지막으로 쏜 목표 (화면 표시용): 부대 id, 간접 사격 지점, 쏜 틱.
+var last_target := ""
+var last_fire_point = null
+var last_fire_tick := -1000
 
 ## 지난 턴의 초당 이동 (예측 사격용).
 var velocity := Vector2.ZERO

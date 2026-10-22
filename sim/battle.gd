@@ -31,6 +31,8 @@ var units: Array[BattleUnit] = []
 var rng := RandomNumberGenerator.new()
 var tick := 0
 var turn := 0
+## 이번 실행기간에서 지난 틱 수.
+var turn_tick := 0
 var turn_seconds := 60
 var turn_limit := 20
 ## 날아가는 포탄: {"land_tick": int, "point": Vector2, "weapon": WeaponType, "attacker": BattleUnit}
@@ -97,15 +99,28 @@ func front_line(id: String) -> FrontLine:
 func run_turn() -> void:
 	if winner != "":
 		return
+	begin_turn()
+	while not turn_over():
+		step()
+	end_turn()
+
+
+## 준비기간이 끝나고 실행기간을 시작한다. AI 는 여기서 이번 턴 명령을 정한다.
+## 화면은 begin_turn → step 반복 → end_turn 으로 실행기간을 천천히 보여 줄 수 있다.
+func begin_turn() -> void:
 	turn += 1
+	turn_tick = 0
 	for ai in ai_players:
 		ai.plan_turn(self)
 	for u in units:
 		u.turn_start_center = u.center
-	for i in turn_seconds:
-		step()
-		if winner != "":
-			break
+
+
+func turn_over() -> bool:
+	return winner != "" or turn_tick >= turn_seconds
+
+
+func end_turn() -> void:
 	for u in units:
 		u.velocity = (u.center - u.turn_start_center) / turn_seconds
 	if winner == "" and turn >= turn_limit:
@@ -114,6 +129,7 @@ func run_turn() -> void:
 
 func step() -> void:
 	tick += 1
+	turn_tick += 1
 	# 1. 명령 도착: 1단계에는 통신 지연이 없어서 준비기간 명령이 그대로 유효하다.
 	#    전선은 공세선 보조와 예비대 투입만 한다.
 	for line in front_lines:
@@ -166,6 +182,8 @@ func _move() -> void:
 		if to.length() < 0.01:
 			if target == u.move_target:
 				u.move_target = null
+				if u.arrive_facing != null:
+					u.facing = u.arrive_facing
 			_settle(u)
 			continue
 		if u.is_pinned() and not retreating:
@@ -185,7 +203,9 @@ func _move() -> void:
 			_settle(u)
 			continue
 		u.center = next_center
-		u.facing = dir
+		# 자리만 조금 고치는 짧은 이동에서는 방향을 돌리지 않는다.
+		if to.length() > 1.0 or u.arrive_facing == null:
+			u.facing = dir
 		u.moved_this_tick = true
 		if u.type.setup_ticks > 0:
 			u.deployed = false
@@ -388,6 +408,9 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 	var unseen := not can_see(target, u)
 	var target_tiles := target.tiles()
 	hits.append(_hit(target, -1, 0.0, w.suppression * n, u, unseen))
+	u.last_target = target.id
+	u.last_fire_point = null
+	u.last_fire_tick = tick
 	for i in n:
 		var idx := _pick_element(target, w)
 		if idx < 0:
@@ -452,6 +475,7 @@ func _pick_element(target: BattleUnit, w: WeaponType) -> int:
 
 func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 	var aim = null
+	var aimed: BattleUnit = null
 	var observed := true
 	match u.fire_order.get("mode", ""):
 		"point":
@@ -462,9 +486,9 @@ func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 			if t != null and t.is_alive() and side_knows(u.side, t):
 				aim = predict_aim(u, w, t)
 		_:
-			var t := _auto_indirect_target(u, w)
-			if t != null:
-				aim = t.center
+			aimed = _auto_indirect_target(u, w)
+			if aimed != null:
+				aim = aimed.center
 	if aim == null:
 		return false
 	var dist := u.center.distance_to(aim)
@@ -477,6 +501,9 @@ func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 		var p := Combat.scatter_point(rng, u.center, aim, w, mult)
 		var flight := maxi(1, ceili(u.center.distance_to(p) / w.shell_speed_tiles))
 		shells.append({"land_tick": tick + flight, "point": p, "weapon": w, "attacker": u})
+	u.last_target = u.fire_order.get("target", "") if u.fire_order.get("mode", "") == "predict" else (aimed.id if aimed != null else "")
+	u.last_fire_point = aim
+	u.last_fire_tick = tick
 	return true
 
 
