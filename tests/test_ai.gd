@@ -95,3 +95,16 @@ func test_ai_holds_in_last_turns() -> void:
 	(s["ai"] as DefenseAI).plan_turn(b)
 	var u := b.unit_by_id("d0")
 	check(u.stance == BattleUnit.Stance.HOLD and u.retreat_point == u.center, "막판에는 후퇴하지 않고 사수한다")
+
+
+func test_ai_guards_guns_in_rear() -> void:
+	var s := _setup()
+	var b: Battle = s["battle"]
+	var at := b.add_unit(BattleUnit.new("at", "ai", types["at_gun"], Vector2(30, 4), Vector2(0, 1)))
+	_settle_line(b)
+	var raider := b.add_unit(BattleUnit.new("raider", "player", types["medium_tank_platoon"], Vector2(36, 4), Vector2.LEFT, "line", 3))
+	b.step()
+	b.begin_turn()
+	var tank := b.unit_by_id("res_tank")
+	check(tank.move_target != null and (tank.move_target as Vector2).distance_to(raider.center) < 1.0, "포 진지에 온 적에게 예비대를 보낸다")
+	check(at.facing.dot(Vector2.RIGHT) > 0.9, "대전차포는 적 전차 쪽으로 돈다")

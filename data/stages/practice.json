@@ -67,8 +67,7 @@
 			"enemy_dir": [0, 1],
 			"units": ["a_inf1", "a_inf2", "a_inf3", "a_inf4"],
 			"reserves": ["a_inf5", "a_inf6", "a_tank1", "a_tank2"],
-			"stance": "hold",
-			"retreat": [[14, 12], [46, 12]]
+			"stance": "hold"
 		}
 	],
 	"ai": [{"side": "ai", "type": "defense", "front_line": "ai_main", "personality": "careful"}]

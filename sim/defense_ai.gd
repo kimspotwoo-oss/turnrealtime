@@ -3,7 +3,7 @@ extends RefCounted
 ## 방어하는 적 AI (기획서 '적 AI'). 매 턴 준비기간에 plan_turn() 이 불린다.
 ##
 ## 자기 진영이 본 적만 보고 판단하고, 플레이어와 같은 명령(전선, 예비대, 태세, 포격)만 쓴다.
-## 1단계 판단 순서: 마지막 수단 → 위험 구간에 예비대 → 반격 → 박격포 표적.
+## 1단계 판단 순서: 마지막 수단 → 위험 구간에 예비대 → 후방 경계 → 반격 → 박격포 표적.
 
 ## 위협 ÷ 아군 화력이 이 값을 넘으면 위험 구간.
 const DANGER_RATIO := 1.5
@@ -16,6 +16,8 @@ const ATTACKER_RANGE := 14.0
 const LAST_STAND_TURNS := 5
 ## 사거리 밖이라도 이 배수 거리까지는 곧 닿을 위협으로 절반만큼 친다.
 const THREAT_REACH := 1.5
+## 박격포·대전차포에서 이 거리(칸) 안에 적이 오면 후방이 위협받는 것으로 본다.
+const REAR_THREAT_RANGE := 10.0
 
 ## 판단하는 동안만 잡아 둔다. Battle 이 AI 를 들고 있어서, 계속 들고 있으면 순환 참조가 된다.
 var battle: Battle
@@ -40,6 +42,7 @@ func plan_turn(p_battle: Battle) -> void:
 	if battle.winner == "" and line != null:
 		_last_stand()
 		_reinforce_danger()
+		_guard_rear()
 		_counterattack()
 		_assign_mortars()
 	battle = null
@@ -125,6 +128,43 @@ func _reinforce_danger() -> void:
 	line.reserves.erase(r.id)
 	line.units.append(r.id)
 	line.send_to_slot(r, worst_f, worst_p)
+
+
+## 대전차포는 아는 적 전차 중 가장 가까운 쪽으로 포를 돌린다. 포 진지 가까이 적이 오면
+## 예비대 하나를 보내 쫓아낸다.
+func _guard_rear() -> void:
+	var enemies := battle.known_enemies(side)
+	for u in battle.units:
+		if u.side != side or not u.is_alive() or u.type.setup_ticks == 0:
+			continue
+		var tank: BattleUnit = null
+		var near: BattleUnit = null
+		for e in enemies:
+			if e.state() == Morale.State.ROUTED:
+				continue
+			var d := e.center.distance_to(u.center)
+			if e.type.is_vehicle() and (tank == null or d < tank.center.distance_to(u.center)):
+				tank = e
+			if d <= REAR_THREAT_RANGE and (near == null or d < near.center.distance_to(u.center)):
+				near = e
+		if tank != null and _has_direct_gun(u):
+			u.facing = (tank.center - u.center).normalized()
+		if near == null:
+			continue
+		var r := line.nearest_reserve(battle, near.center, near.type.is_vehicle())
+		if r == null:
+			continue
+		line.reserves.erase(r.id)
+		r.individual = true
+		r.stance = BattleUnit.Stance.ATTACK
+		r.move_target = near.center
+
+
+static func _has_direct_gun(u: BattleUnit) -> bool:
+	for w in u.type.weapons:
+		if w.scale == "gun" and not w.indirect:
+			return true
+	return false
 
 
 ## 공격해 온 적이 흔들리고 온전한 예비대가 둘 이상이면 짧게 반격한다.

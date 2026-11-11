@@ -22,12 +22,12 @@ static func set_formation(u: BattleUnit, kind: String, tiles := -1) -> void:
 	u.set_formation(kind, u.tile_count if tiles < 0 else tiles)
 
 
-## 태세. 고른 부대가 모두 한 전선의 부대면 전선 태세도 바꾼다.
+## 태세. 한 전선의 부대를 모두 고른 경우에만 전선 태세도 바꾼다.
 static func set_stance(b: Battle, units: Array[BattleUnit], stance: BattleUnit.Stance) -> void:
 	for u in units:
 		u.stance = stance
 	var line := common_line(b, units)
-	if line != null:
+	if line != null and line.units.size() == units.size():
 		line.stance = stance
 
 

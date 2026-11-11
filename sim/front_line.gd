@@ -119,7 +119,8 @@ func send_to_slot(r: BattleUnit, f: float, target: Vector2) -> void:
 
 
 ## 공세선: 앞서 나간 부대는 뒤처진 부대를 기다려 나란히 전진한다.
-## 적과 교전 중인 부대는 기다리지 않는다.
+## 적과 교전 중인 부대는 기다리지 않고, 고착되거나 무너진 부대는 기다려 주지 않는다.
+## pace_hold 는 Battle.step 이 틱마다 지우므로 여기서는 세우기만 한다.
 func _keep_pace(battle: Battle) -> void:
 	if offensive.is_empty():
 		return
@@ -133,8 +134,11 @@ func _keep_pace(battle: Battle) -> void:
 		var total: float = (s["start"] as Vector2).distance_to(s["target"])
 		var p := 1.0 if total < 0.01 else 1.0 - u.center.distance_to(s["target"]) / total
 		progress[uid] = p
-		if u.state() < Morale.State.PANIC:
+		if u.state() < Morale.State.PANIC and not u.is_pinned():
 			slowest = minf(slowest, p)
+	if slowest == INF:
+		# 기다려 줄 부대가 없다. 공세선은 그대로 둔다.
+		return
 	for uid in progress:
 		var u := battle.unit_by_id(uid)
 		u.pace_hold = u.reaction.is_empty() and progress[uid] > slowest + PACE_SLACK

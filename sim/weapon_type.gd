@@ -16,6 +16,8 @@ var interval_ticks: int
 var acc_near: float
 var acc_far: float
 var suppression: float
+## 사람을 쏠 때 명중률 배수. 철갑탄을 쏘는 대전차포는 사람 하나를 맞히기 어렵다.
+var soft_accuracy: float
 var indirect: bool
 var close_at: bool
 var blast_tiles: int
@@ -42,6 +44,7 @@ static func from_dict(d: Dictionary) -> WeaponType:
 	w.acc_near = float(acc[0])
 	w.acc_far = float(acc[1])
 	w.suppression = float(d.get("suppression", 0.0))
+	w.soft_accuracy = float(d.get("soft_accuracy", 1.0))
 	w.indirect = bool(d.get("indirect", false))
 	w.close_at = bool(d.get("close_at", false))
 	w.blast_tiles = int(d.get("blast_tiles", 0))

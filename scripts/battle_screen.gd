@@ -23,6 +23,16 @@ const TERRAIN_COLORS := {
 const STATE_NAMES := ["안정", "동요", "패닉", "패주"]
 const STANCE_NAMES := ["공격", "후퇴", "저지", "무시"]
 const FORMATION_NAMES := {"line": "횡대", "column": "종대", "wedge": "쐐기", "dispersed": "분산"}
+const HOLD_REASONS := {
+	"panic": "패닉에 빠져 움직이지 못함",
+	"pace": "공세선에서 다른 부대를 기다리는 중",
+	"pinned": "고착됨 (제압이 100 아래로 내려가야 움직임)",
+	"melee": "근접전 중이라 앞으로 나가지 못함",
+	"blocked": "다른 전차에 길이 막힘",
+	"engaged": "교전 중 (저지·공격 태세로 멈춤)",
+}
+## 보이지 않는 적에게 맞은 방향을 보여 주는 시간 (틱).
+const UNSEEN_TICKS := 10
 
 enum Mode { SELECT, MOVE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DRAW_OFFENSIVE, DRAW_RETREAT_LINE }
 
@@ -54,6 +64,11 @@ var _camera: Camera2D
 var _top_label: Label
 var _hint_label: Label
 var _info_label: Label
+var _report_label: Label
+## 지난 턴 보고 (턴이 끝날 때 만든다).
+var report := ""
+## 턴을 시작할 때 아군이 알던 적.
+var _known_at_start := {}
 var _run_button: Button
 var _speed_button: Button
 var _groups := {}
@@ -72,6 +87,7 @@ func load_stage(path: String) -> void:
 	selected.clear()
 	_set_mode(Mode.SELECT)
 	running = false
+	report = ""
 	_terrain_tex = _make_terrain_texture(battle.map)
 	# 오른쪽 명령 칸만큼 지도를 왼쪽으로 비켜 보여 준다.
 	_camera.position = Vector2(battle.map.width, battle.map.height) * TILE_PX / 2.0 + Vector2(150, -20)
@@ -86,6 +102,9 @@ func start_turn() -> void:
 		return
 	_set_mode(Mode.SELECT)
 	battle.begin_turn()
+	_known_at_start.clear()
+	for e in battle.known_enemies(PLAYER_SIDE):
+		_known_at_start[e.id] = true
 	running = true
 	_tick_accum = 0.0
 	_refresh_ui()
@@ -101,6 +120,7 @@ func _process(delta: float) -> void:
 	if battle.turn_over():
 		battle.end_turn()
 		running = false
+		report = make_report()
 		_prune_selection()
 	_refresh_ui()
 	queue_redraw()
@@ -304,10 +324,14 @@ func _draw() -> void:
 	if battle == null:
 		return
 	draw_texture_rect(_terrain_tex, Rect2(Vector2.ZERO, Vector2(battle.map.width, battle.map.height) * TILE_PX), false)
+	_draw_objectives()
 	for line in battle.front_lines:
 		if line.side != PLAYER_SIDE and not show_all:
 			continue
 		var color: Color = SIDE_COLORS.get(line.side, Color.WHITE)
+		if not _line_in_use(line):
+			# 부대가 모두 개별 명령으로 떠난 전선은 흐리게.
+			color.a = 0.3
 		_draw_line_points(line.points, color, 3.0)
 		_draw_line_points(line.offensive, color.lightened(0.4), 2.0, true)
 		_draw_line_points(line.retreat, color.darkened(0.3), 2.0, true)
@@ -317,6 +341,9 @@ func _draw() -> void:
 	for u in battle.units:
 		if u.is_alive() and is_shown(u):
 			_draw_fire(u)
+	for u in battle.units:
+		if u.is_alive() and u.side == PLAYER_SIDE:
+			_draw_unseen(u)
 	for u in selected:
 		if u.is_alive() and is_shown(u):
 			_draw_ranges(u)
@@ -351,6 +378,49 @@ func _draw_unit(u: BattleUnit) -> void:
 	var c := _px(u.center)
 	draw_line(c, c + u.facing * TILE_PX * 1.2, Color.BLACK, 2.0)
 	UnitSymbol.draw(self, c, SYMBOL_PX, u.type.symbol_icon, u.type.symbol_echelon, u.side != PLAYER_SIDE, color, Color.WHITE if sel else Color.BLACK)
+	if u.state() != Morale.State.STEADY:
+		var badge := Color(1.0, 0.85, 0.2) if u.state() == Morale.State.SHAKEN else Color(1.0, 0.3, 0.2)
+		_draw_label(c + Vector2(-SYMBOL_PX * 0.6, SYMBOL_PX * 1.1), STATE_NAMES[u.state()], badge)
+
+
+## 글자 뒤에 검은 테두리를 둘러 지형 위에서도 읽히게 한다.
+func _draw_label(p: Vector2, text: String, color: Color, size := 13) -> void:
+	var font := ThemeDB.fallback_font
+	draw_string_outline(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 4, Color(0, 0, 0, 0.8))
+	draw_string(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+
+
+## 점령 목표 구역. 플레이어가 점령해야 하면 흰 테두리, 지켜야 하면 파란 테두리.
+func _draw_objectives() -> void:
+	var capture: Dictionary = battle.victory.get("capture", {})
+	for side in capture:
+		var color := Color.WHITE if side == PLAYER_SIDE else SIDE_COLORS[PLAYER_SIDE]
+		for rect in capture[side]:
+			var r := Rect2(Vector2(rect.position) * TILE_PX, Vector2(rect.size) * TILE_PX)
+			var held := battle.holds(side, rect)
+			draw_rect(r, Color(color, 0.9), false, 3.0 if held else 2.0)
+			_draw_label(r.position + Vector2(4, 16), "점령 목표%s" % (" (점령함)" if held else ""), color)
+
+
+func _line_in_use(line: FrontLine) -> bool:
+	for uid in line.units:
+		var u := battle.unit_by_id(uid)
+		if u != null and u.is_alive() and not u.individual:
+			return true
+	return not line.reserves.is_empty()
+
+
+## 보이지 않는 적에게 맞으면 그 방향으로 짧은 빨간 점선과 "?" 를 그린다. 거리는 알려 주지 않는다.
+func _draw_unseen(u: BattleUnit) -> void:
+	var age := battle.tick - u.unseen_tick
+	if u.unseen_from == null or age > UNSEEN_TICKS:
+		return
+	var dir: Vector2 = (u.unseen_from - u.center).normalized()
+	var color := Color(1.0, 0.2, 0.2, 1.0 - float(age) / (UNSEEN_TICKS + 1))
+	var from := _px(u.center) + dir * TILE_PX * 1.5
+	var to := from + dir * TILE_PX * 4.0
+	draw_dashed_line(from, to, color, 2.5, 6.0)
+	_draw_label(to + Vector2(-4, 5), "?", color, 18)
 
 
 func _draw_orders(u: BattleUnit) -> void:
@@ -370,24 +440,42 @@ func _draw_orders(u: BattleUnit) -> void:
 				draw_dashed_line(_px(t.center), _px(t.center + t.velocity * 20.0), Color.ORANGE_RED, 1.5, 4.0)
 
 
-## 최근에 쏜 사격을 쏜 부대에서 목표로 선을 긋는다. 오래될수록 흐려진다.
-## 아군 사격은 노란색, 적 사격은 주황색이다.
 ## 고른 부대의 무기별 사거리 원. 같은 사거리는 한 번만, 칸 하나 남짓한 근접 무기는 뺀다.
 func _draw_ranges(u: BattleUnit) -> void:
 	var color: Color = SIDE_COLORS.get(u.side, Color.WHITE).darkened(0.1)
-	var font := ThemeDB.fallback_font
 	var drawn := {}
+	# 글자는 원 위에서 지도 가운데 쪽에 둔다 (원이 지도 밖으로 나가도 읽히게).
+	var inward := (Vector2(battle.map.width, battle.map.height) / 2.0 - u.center).normalized()
+	if inward.is_zero_approx():
+		inward = Vector2.UP
 	for w in u.type.weapons:
 		if w.range_tiles < 2.0 or drawn.has(w.range_tiles):
 			continue
 		drawn[w.range_tiles] = true
 		var r := (w.range_tiles + 0.5) * TILE_PX
 		draw_arc(_px(u.center), r, 0.0, TAU, 96, color, 2.0)
-		draw_string(font, _px(u.center) + Vector2(4, -r - 4), "%s %dm" % [w.name, roundi(w.range_tiles * BattleMap.TILE_METERS)], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, color)
+		var at := _px(u.center) + inward * minf(r, _inside_distance(u.center, inward) * TILE_PX)
+		_draw_label(at + Vector2(-30, 0), "%s %dm" % [w.name, roundi(w.range_tiles * BattleMap.TILE_METERS)], color.lightened(0.5), 15)
 		if w.min_range_tiles > 0.0:
 			draw_arc(_px(u.center), w.min_range_tiles * TILE_PX, 0.0, TAU, 48, color.darkened(0.3), 1.0)
 
 
+## p 에서 dir 쪽으로 지도 끝까지의 거리 (칸).
+func _inside_distance(p: Vector2, dir: Vector2) -> float:
+	var best := INF
+	if dir.x > 0.001:
+		best = minf(best, (battle.map.width - 2 - p.x) / dir.x)
+	elif dir.x < -0.001:
+		best = minf(best, (1 - p.x) / dir.x)
+	if dir.y > 0.001:
+		best = minf(best, (battle.map.height - 2 - p.y) / dir.y)
+	elif dir.y < -0.001:
+		best = minf(best, (1 - p.y) / dir.y)
+	return maxf(0.0, best)
+
+
+## 최근에 쏜 사격을 쏜 부대에서 목표로 선을 긋는다. 오래될수록 흐려진다.
+## 아군 사격은 노란색, 적 사격은 주황색이다.
 func _draw_fire(u: BattleUnit) -> void:
 	var age := battle.tick - u.last_fire_tick
 	if age > FIRE_LINE_TICKS:
@@ -445,6 +533,10 @@ func _build_ui() -> void:
 	_info_label = Label.new()
 	_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_info_label)
+	_report_label = Label.new()
+	_report_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_report_label.add_theme_font_size_override("font_size", 13)
+	box.add_child(_report_label)
 
 	var stance := _group(box, "stance", "태세")
 	for i in STANCE_NAMES.size():
@@ -527,7 +619,8 @@ func _refresh_ui() -> void:
 	var result := ""
 	if battle.winner != "":
 		result = "   승리!" if battle.winner == PLAYER_SIDE else "   패배"
-	_top_label.text = "턴 %d / %d   %s%s" % [battle.turn + (0 if running else 1), battle.turn_limit, phase, result]
+	var shown_turn := battle.turn if running or battle.winner != "" else battle.turn + 1
+	_top_label.text = "턴 %d / %d   %s%s   %s" % [mini(shown_turn, battle.turn_limit), battle.turn_limit, phase, result, _goal_text()]
 	_run_button.disabled = running or battle.winner != ""
 	var own := _own_selected()
 	var can_order := not running and battle.winner == "" and not own.is_empty()
@@ -540,6 +633,56 @@ func _refresh_ui() -> void:
 			if child is Button:
 				child.disabled = true
 	_info_label.text = _describe_selection()
+	_report_label.text = report
+	_report_label.visible = not running and report != ""
+
+
+func _goal_text() -> String:
+	var capture: Dictionary = battle.victory.get("capture", {})
+	if capture.has(PLAYER_SIDE):
+		return "목표: %d턴 안에 점령 목표 %d곳을 모두 점령" % [battle.turn_limit, capture[PLAYER_SIDE].size()]
+	if battle.victory.get("defender", "") == PLAYER_SIDE:
+		return "목표: %d턴까지 버티기" % battle.turn_limit
+	return ""
+
+
+## 턴 보고: 아군 부대마다 이번 턴에 잃은 병력, 사기 변화와 그 까닭, 새로 발견한 적.
+func make_report() -> String:
+	var lines: Array[String] = ["— 턴 %d 보고 —" % battle.turn]
+	for u in battle.units:
+		if u.side != PLAYER_SIDE or u.turn_log.is_empty():
+			continue
+		var parts: Array[String] = []
+		var lost: int = u.turn_log.get("lost", 0)
+		if not u.is_alive():
+			parts.append("전멸")
+		elif lost > 0:
+			parts.append("%d명 잃음" % lost if not u.type.is_vehicle() else "%d 잃음" % lost)
+		var before: int = u.turn_log.get("state", 0)
+		if u.is_alive() and u.state() != before:
+			parts.append("%s → %s" % [STATE_NAMES[before], STATE_NAMES[u.state()]])
+		var causes: Array[String] = []
+		if u.turn_log.get("shelled", 0) > 0:
+			causes.append("포격 %d발" % u.turn_log["shelled"])
+		if u.turn_log.get("unseen", 0) > 0:
+			causes.append("보이지 않는 적의 사격")
+		if u.turn_log.get("shock", 0) > 0:
+			causes.append("기습 충격")
+		if parts.is_empty() and causes.is_empty():
+			continue
+		var text := "%s: %s" % [u.id, ", ".join(parts) if not parts.is_empty() else "피해 없음"]
+		if not causes.is_empty():
+			text += " (%s)" % ", ".join(causes)
+		lines.append(text)
+	var found := 0
+	for e in battle.known_enemies(PLAYER_SIDE):
+		if not _known_at_start.has(e.id):
+			found += 1
+	if found > 0:
+		lines.append("새로 발견한 적 %d부대" % found)
+	if lines.size() == 1:
+		lines.append("큰 변화 없음")
+	return "\n".join(lines)
 
 
 func _describe_selection() -> String:
@@ -570,4 +713,8 @@ func _describe_selection() -> String:
 		lines.append("사격 대상: 지점 포격")
 	if u.type.setup_ticks > 0 and not u.deployed:
 		lines.append("전개 중 %d초" % u.setup_left)
+	if HOLD_REASONS.has(u.hold_reason):
+		lines.append("멈춤: " + HOLD_REASONS[u.hold_reason])
+	if battle.tick - u.unseen_tick <= UNSEEN_TICKS:
+		lines.append("보이지 않는 적에게 공격받는 중 (빨간 ? 방향)")
 	return "\n".join(lines)

@@ -23,6 +23,8 @@ var morale := 100.0
 var suppression := 0.0
 var shock_level := 0
 var shock_ticks := 0
+## 마지막으로 충격을 받은 틱. 같은 일로 충격이 거듭 걸리지 않게 한다.
+var last_shock_tick := -1000
 var last_attacked_tick := -1000
 ## 최근 손실 기록: [틱, 잃은 수]
 var recent_losses: Array[Vector2i] = []
@@ -36,8 +38,13 @@ var retreat_point: Vector2
 var moved_this_tick := false
 ## 플레이어가 따로 내린 명령. 전선 명령보다 우선한다.
 var individual := false
-## 공세선에서 앞서 나가 나머지를 기다리는 중.
+## 공세선에서 앞서 나가 나머지를 기다리는 중. 전선이 틱마다 다시 정한다.
 var pace_hold := false
+## 교전 때문에 이번 틱에 갈 곳 (공격 태세는 적, 저지 태세는 제자리) 또는 null.
+## 명령(move_target)은 그대로 두므로 교전이 끝나면 원래 명령을 이어 간다.
+var engage_point = null
+## 움직이지 못한 까닭 (화면 표시용): "", "panic", "pace", "pinned", "melee", "blocked", "engaged".
+var hold_reason := ""
 var deployed := true
 var setup_left := 0
 
@@ -51,6 +58,13 @@ var fire_order := {}
 var last_target := ""
 var last_fire_point = null
 var last_fire_tick := -1000
+## 보이지 않는 적에게 맞았을 때 그 적이 있던 곳과 틱 (화면에는 방향만 보여 준다).
+var unseen_from = null
+var unseen_tick := -1000
+## 이번 턴 기록 (턴 보고용). begin_turn 에서 비운다.
+## {"state": 시작 사기 상태, "alive": 시작 병력, "lost": 잃은 수, "shelled": 가까이 떨어진 포탄 수,
+##  "unseen": 보이지 않는 적에게 맞은 수, "shock": 충격 횟수}
+var turn_log := {}
 
 ## 지난 턴의 초당 이동 (예측 사격용).
 var velocity := Vector2.ZERO

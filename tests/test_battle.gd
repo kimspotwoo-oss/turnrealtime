@@ -77,6 +77,8 @@ func test_melee_unit_can_only_retreat() -> void:
 	var inf: UnitType = types["infantry_platoon"]
 	var red := b.add_unit(BattleUnit.new("red", "red", inf, Vector2(10, 10), Vector2.UP, "line", 2))
 	b.add_unit(BattleUnit.new("blue", "blue", inf, Vector2(10, 10), Vector2.DOWN, "line", 2))
+	# 저지 태세는 교전 중 제자리를 지키므로, 이동 규칙만 보려고 무시 태세로 둔다.
+	red.stance = BattleUnit.Stance.IGNORE
 	b.step()
 	red.move_target = Vector2(10, 0)
 	var before := red.center
@@ -209,3 +211,81 @@ func test_shooter_remembers_target() -> void:
 
 func test_at_gun_moves_at_infantry_speed() -> void:
 	check(types["at_gun"].speed["foot"] == types["infantry_platoon"].speed["foot"], "대전차포는 보병과 같은 속도")
+
+
+func test_sidestep_keeps_front_and_hold_keeps_order() -> void:
+	var b := _battle()
+	var a := b.add_unit(BattleUnit.new("a", "red", types["infantry_platoon"], Vector2(10, 10), Vector2.DOWN))
+	a.move_target = Vector2(20, 10)
+	a.arrive_facing = Vector2.DOWN
+	b.step()
+	check(a.facing.is_equal_approx(Vector2.DOWN), "전선 자리를 옆으로 옮길 때는 정면을 유지한다")
+	b.add_unit(BattleUnit.new("c", "blue", _crowd(5), Vector2(11, 20), Vector2.UP))
+	for i in 3:
+		b.step()
+	check(a.move_target != null, "저지 태세 교전은 명령을 지우지 않는다")
+	check(a.hold_reason == "engaged", "멈춘 까닭을 남긴다")
+
+
+func test_attack_does_not_chase_routed_enemy() -> void:
+	var b := _battle()
+	var a := b.add_unit(BattleUnit.new("a", "red", _crowd(5), Vector2(10, 10), Vector2.DOWN))
+	a.stance = BattleUnit.Stance.ATTACK
+	a.move_target = Vector2(30, 10)
+	var c := b.add_unit(BattleUnit.new("c", "blue", _crowd(5), Vector2(10, 16), Vector2.UP))
+	c.morale = 5.0
+	for i in 5:
+		b.step()
+	check(a.center.x > 10.0, "패주하는 적은 쫓지 않고 명령대로 간다")
+
+
+func test_adjacent_tanks_do_not_deadlock() -> void:
+	var b := _battle()
+	var tank: UnitType = types["medium_tank_platoon"]
+	var a := b.add_unit(BattleUnit.new("a", "red", tank, Vector2(10, 20), Vector2.UP, "line", 3))
+	var c := b.add_unit(BattleUnit.new("c", "red", tank, Vector2(13, 20), Vector2.UP, "line", 3))
+	a.move_target = Vector2(10, 5)
+	c.move_target = Vector2(13, 5)
+	for i in 30:
+		b.step()
+	check(a.center.y < 18.0 and c.center.y < 18.0, "붙어 선 전차 소대가 서로 막지 않는다")
+
+
+func test_routed_infantry_does_not_hold_tank() -> void:
+	var b := _battle()
+	var t := b.add_unit(BattleUnit.new("t", "red", types["medium_tank_platoon"], Vector2(10, 10), Vector2.UP, "line", 3))
+	var inf := b.add_unit(BattleUnit.new("i", "blue", types["infantry_platoon"], Vector2(10, 10), Vector2.DOWN, "line", 3))
+	inf.morale = 5.0
+	b.step()
+	check(not b.in_melee(t), "전차는 근접전에 묶이지 않는다")
+	t.move_target = Vector2(10, 2)
+	var y := t.center.y
+	b.step()
+	check(t.center.y < y, "보병 사이를 지나 전진한다")
+
+
+func test_mortar_does_not_pin_tanks_or_shock_repeatedly() -> void:
+	var b := _battle()
+	var t := b.add_unit(BattleUnit.new("t", "red", types["medium_tank_platoon"], Vector2(10, 10), Vector2.UP, "line", 3))
+	var inf := b.add_unit(BattleUnit.new("i", "red", _crowd(30), Vector2(20, 10), Vector2.UP))
+	var m := b.add_unit(BattleUnit.new("m", "blue", types["mortar_platoon"], Vector2(15, 39), Vector2.UP))
+	var w: WeaponType = m.type.weapons[0]
+	for i in 60:
+		b.shells.append({"land_tick": b.tick + 1, "point": t.center, "weapon": w, "attacker": m})
+		b.shells.append({"land_tick": b.tick + 1, "point": inf.center, "weapon": w, "attacker": m})
+		b.step()
+	check(t.suppression == 0.0 and t.shock_ticks == 0, "포탄은 전차를 제압하지 않는다")
+	check(inf.morale > 40.0 or inf.alive_count() < 25, "사상자 없이 포격만으로 패닉에 빠지지 않는다")
+
+
+func test_firing_reveals_shooter_to_target() -> void:
+	var b := _battle()
+	b.map.fill_rect(Rect2i(0, 18, 40, 3), "forest")
+	var gun := b.add_unit(BattleUnit.new("g", "red", types["at_gun"], Vector2(10, 19), Vector2.DOWN))
+	var tank := b.add_unit(BattleUnit.new("t", "blue", types["medium_tank_platoon"], Vector2(10, 30), Vector2.UP, "line", 3))
+	b.step()
+	check(not b.can_see(tank, gun), "숲 속 대전차포는 처음에는 안 보인다")
+	gun.last_target = "t"
+	gun.last_fire_tick = b.tick
+	b.step()
+	check(b.can_see(tank, gun), "쏘면 맞은 쪽에 위치가 드러난다")

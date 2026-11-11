@@ -88,3 +88,30 @@ func test_units_face_enemy_after_small_adjustment() -> void:
 		b.step()
 	check(u.facing.is_equal_approx(Vector2(0, 1)), "자리를 옆으로 조금 고쳐도 적 쪽을 본다: %s" % u.facing)
 	check(u.tiles()[0].y == u.tiles()[1].y, "횡대는 가로로 선다")
+
+
+func test_pace_hold_clears_after_individual_order() -> void:
+	var b := _battle_with_line(2, PackedVector2Array([Vector2(8, 30), Vector2(52, 30)]))
+	var u0 := b.unit_by_id("u0")
+	var u1 := b.unit_by_id("u1")
+	u1.morale = 100.0
+	u1.suppression = Morale.PINNED_AT + 40.0
+	for i in 3:
+		b.step()
+	check(not u0.pace_hold, "고착된 부대는 기다려 주지 않는다")
+	u1.suppression = 0.0
+	u1.center = Vector2(30, 10)
+	u0.pace_hold = true
+	Orders.move(u0, Vector2(10, 5))
+	b.step()
+	check(not u0.pace_hold, "개별 명령을 받으면 공세선 대기가 풀린다")
+
+
+func test_broken_line_does_not_jump_to_offensive() -> void:
+	var b := _battle_with_line(2, PackedVector2Array([Vector2(8, 30), Vector2(52, 30)]))
+	for u in b.units:
+		u.morale = 30.0
+	b.step()
+	var line := b.front_line("main")
+	check(not line.offensive.is_empty(), "모두 무너져도 공세선을 새 전선으로 삼지 않는다")
+	check_near(line.points[0].y, 18.0, "전선은 제자리")
