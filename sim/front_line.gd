@@ -58,6 +58,7 @@ func apply(battle: Battle) -> void:
 		u.set_formation("line", roundi(width))
 		u.stance = stance
 		u.move_target = target
+		u.waypoints.clear()
 		if not retreat.is_empty():
 			u.retreat_point = point_at(retreat, f)
 
@@ -114,6 +115,7 @@ func send_to_slot(r: BattleUnit, f: float, target: Vector2) -> void:
 	r.arrive_facing = r.facing
 	r.stance = stance
 	r.move_target = target
+	r.waypoints.clear()
 	if not retreat.is_empty():
 		r.retreat_point = point_at(retreat, f)
 

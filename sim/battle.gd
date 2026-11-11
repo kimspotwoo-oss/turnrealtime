@@ -206,11 +206,18 @@ func _move() -> void:
 				if u.move_target != null:
 					u.hold_reason = "engaged"
 			elif target == u.move_target:
-				u.move_target = null
-				if u.arrive_facing != null:
-					u.facing = u.arrive_facing
+				if not u.waypoints.is_empty():
+					u.move_target = u.waypoints.pop_front()
+				else:
+					u.move_target = null
+					if u.arrive_facing != null:
+						u.facing = u.arrive_facing
 			_settle(u)
 			continue
+		var remaining := to.length()
+		if target != u.engage_point:
+			# 교전 중 적에게 다가갈 때만 곧장 가고, 나머지는 지형을 보고 길을 찾는다.
+			to = _path_point(u, target) - u.center
 		if u.is_pinned() and not retreating:
 			u.hold_reason = "pinned"
 			_settle(u)
@@ -228,7 +235,7 @@ func _move() -> void:
 		var moved := false
 		for angle in DETOUR_ANGLES:
 			var dir := to.normalized().rotated(deg_to_rad(angle))
-			var facing := _move_facing(u, dir, to.length(), retreating)
+			var facing := _move_facing(u, dir, remaining, retreating)
 			var next_center := u.center + dir * step_len
 			if _vehicle_blocked(u, next_center, facing):
 				continue
@@ -244,6 +251,22 @@ func _move() -> void:
 		if u.type.setup_ticks > 0:
 			u.deployed = false
 			u.setup_left = u.type.setup_ticks
+
+
+## 목표까지 가는 길에서 지금 향할 점. 목표가 바뀌면 길을 새로 찾는다.
+func _path_point(u: BattleUnit, goal: Vector2) -> Vector2:
+	if u.path_goal == null or not (u.path_goal as Vector2).is_equal_approx(goal) or u.path.is_empty():
+		u.path = map.find_path(u.center, goal, u.type.is_vehicle(), road_factor(u))
+		u.path_goal = goal
+	while u.path.size() > 1 and u.center.distance_to(u.path[0]) < 0.25:
+		u.path.remove_at(0)
+	return u.path[0]
+
+
+static func road_factor(u: BattleUnit) -> float:
+	if u.type.is_vehicle() and u.type.speed.has("road"):
+		return float(u.type.speed["road"]) / float(u.type.speed["vehicle"])
+	return 1.0
 
 
 ## 움직이는 동안 바라볼 방향. 보통은 가는 쪽을 보지만, 정해진 정면(전선 자리)이 있으면

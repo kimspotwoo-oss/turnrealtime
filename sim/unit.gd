@@ -32,6 +32,11 @@ var recent_losses: Array[Vector2i] = []
 var stance := Stance.HOLD
 ## 이동 목표 (칸 좌표) 또는 null.
 var move_target = null
+## 이동 목표 다음에 차례로 갈 경유점.
+var waypoints: Array[Vector2] = []
+## 지금 따라가는 길 (map.find_path 결과)과 그 길의 끝.
+var path := PackedVector2Array()
+var path_goal = null
 ## 도착하면 바라볼 방향 (전선 자리처럼 정해진 경우) 또는 null. 가는 동안은 가는 쪽을 본다.
 var arrive_facing = null
 var retreat_point: Vector2

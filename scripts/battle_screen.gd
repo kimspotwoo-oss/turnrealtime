@@ -1,7 +1,7 @@
 extends Node2D
 ## 집중전투 화면. 준비기간에 명령을 내리고, 실행기간을 지켜본다.
 ##
-## 마우스: 왼쪽 클릭 = 선택·명령, 왼쪽 끌기 = 여러 부대 선택, 오른쪽 클릭 = 그리기 완료·모드 취소,
+## 마우스: 왼쪽 클릭 = 선택·명령 (이동 중 Shift = 경유점 추가), 왼쪽 끌기 = 여러 부대 선택, 오른쪽 클릭 = 그리기 완료·모드 취소,
 ## 가운데 끌기 = 화면 이동, 휠 = 확대·축소.
 ## 키보드: 스페이스 = 실행, Enter = 그리기 완료, Esc = 취소, F1 = 전체 보기(시험용).
 
@@ -38,7 +38,7 @@ enum Mode { SELECT, MOVE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DR
 
 const MODE_HINTS := {
 	Mode.SELECT: "부대를 누르거나 끌어서 고르세요.",
-	Mode.MOVE: "이동할 곳을 누르세요.",
+	Mode.MOVE: "이동할 곳을 누르세요. Shift+클릭으로 경유점을 이어 찍을 수 있어요.",
 	Mode.RETREAT_POINT: "후퇴지를 누르세요.",
 	Mode.FIRE_POINT: "포격할 지점을 누르세요.",
 	Mode.FIRE_PREDICT: "예측 사격할 적 부대를 누르세요.",
@@ -199,8 +199,9 @@ func click_at(p: Vector2, add := false) -> void:
 			if u != null and not selected.has(u):
 				selected.append(u)
 		Mode.MOVE:
-			_move_group(p)
-			_set_mode(Mode.SELECT)
+			_move_group(p, add)
+			if not add:
+				_set_mode(Mode.SELECT)
 		Mode.RETREAT_POINT:
 			for u in _own_selected():
 				Orders.set_retreat_point(u, p)
@@ -234,16 +235,24 @@ func box_select(rect: Rect2, add := false) -> void:
 
 
 ## 여럿을 함께 옮기면 지금의 배치 모양을 유지한 채 옮긴다.
-func _move_group(p: Vector2) -> void:
+## waypoint 이면 지금 명령의 마지막 목적지 다음에 이어 붙인다.
+func _move_group(p: Vector2, waypoint := false) -> void:
 	var units := _own_selected()
 	if units.is_empty():
 		return
+	var starts := {}
 	var c := Vector2.ZERO
 	for u in units:
-		c += u.center
+		var dest = Orders.final_destination(u) if waypoint else null
+		starts[u] = dest if dest != null else u.center
+		c += starts[u]
 	c /= units.size()
 	for u in units:
-		Orders.move(u, p + (u.center - c))
+		var to: Vector2 = p + (starts[u] - c)
+		if waypoint:
+			Orders.add_waypoint(u, to)
+		else:
+			Orders.move(u, to)
 
 
 func finish_draft() -> void:
@@ -423,10 +432,19 @@ func _draw_unseen(u: BattleUnit) -> void:
 	_draw_label(to + Vector2(-4, 5), "?", color, 18)
 
 
+## 고른 아군의 명령: 찾은 길을 따라 이동 목표와 경유점까지 점선, 후퇴지, 포격 지점.
 func _draw_orders(u: BattleUnit) -> void:
 	if u.move_target != null:
-		draw_dashed_line(_px(u.center), _px(u.move_target), Color.WHITE, 1.5, 6.0)
-		draw_circle(_px(u.move_target), 3.0, Color.WHITE)
+		var stops: Array[Vector2] = [u.move_target]
+		stops.append_array(u.waypoints)
+		var from := u.center
+		for stop in stops:
+			var pts := PackedVector2Array([from])
+			pts.append_array(battle.map.find_path(from, stop, u.type.is_vehicle(), Battle.road_factor(u)))
+			for i in range(1, pts.size()):
+				draw_dashed_line(_px(pts[i - 1]), _px(pts[i]), Color.WHITE, 1.5, 6.0)
+			draw_circle(_px(stop), 3.0, Color.WHITE)
+			from = stop
 	var rp := _px(u.retreat_point)
 	draw_line(rp - Vector2(4, 4), rp + Vector2(4, 4), Color.ORANGE, 2.0)
 	draw_line(rp - Vector2(4, -4), rp + Vector2(4, -4), Color.ORANGE, 2.0)

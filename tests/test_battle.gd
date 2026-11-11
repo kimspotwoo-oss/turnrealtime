@@ -289,3 +289,31 @@ func test_firing_reveals_shooter_to_target() -> void:
 	gun.last_fire_tick = b.tick
 	b.step()
 	check(b.can_see(tank, gun), "쏘면 맞은 쪽에 위치가 드러난다")
+
+
+func test_tank_drives_around_forest() -> void:
+	var b := _battle()
+	b.map.fill_rect(Rect2i(5, 15, 10, 3), "forest")
+	var t := b.add_unit(BattleUnit.new("t", "red", types["medium_tank_platoon"], Vector2(10, 25), Vector2.UP, "line", 3))
+	t.move_target = Vector2(10, 8)
+	var max_x := 0.0
+	for i in 200:
+		b.step()
+		max_x = maxf(max_x, t.center.x)
+	check(t.move_target == null, "목표에 닿는다")
+	check(max_x > 14.0, "숲을 뚫지 않고 돌아간다")
+
+
+func test_waypoints_are_followed_in_order() -> void:
+	var b := _battle()
+	var u := b.add_unit(BattleUnit.new("u", "red", _crowd(5), Vector2(5, 5)))
+	Orders.move(u, Vector2(5, 8))
+	Orders.add_waypoint(u, Vector2(8, 8))
+	check(Orders.final_destination(u) == Vector2(8, 8), "마지막 목적지는 마지막 경유점")
+	var passed_corner := false
+	for i in 200:
+		b.step()
+		if u.center.distance_to(Vector2(5, 8)) < 0.3:
+			passed_corner = true
+	check(passed_corner, "첫 목표를 지난다")
+	check(u.center.distance_to(Vector2(8, 8)) < 0.01 and u.move_target == null, "경유점까지 간다")

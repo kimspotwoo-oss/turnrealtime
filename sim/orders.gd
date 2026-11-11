@@ -5,12 +5,31 @@ extends RefCounted
 ## 개별 이동. 전선에 속한 부대라도 개별 명령이 우선한다.
 static func move(u: BattleUnit, target: Vector2) -> void:
 	u.move_target = target
+	u.waypoints.clear()
 	u.arrive_facing = null
 	u.individual = true
 
 
+## 경유점: 지금 이동 목표(와 앞선 경유점)를 지난 뒤 이어서 간다. 이동 명령이 없으면 그냥 이동.
+static func add_waypoint(u: BattleUnit, p: Vector2) -> void:
+	if u.move_target == null:
+		move(u, p)
+		return
+	u.waypoints.append(p)
+	u.arrive_facing = null
+	u.individual = true
+
+
+## 마지막 목적지 (경유점이 있으면 마지막 경유점).
+static func final_destination(u: BattleUnit) -> Variant:
+	if not u.waypoints.is_empty():
+		return u.waypoints[u.waypoints.size() - 1]
+	return u.move_target
+
+
 static func stop(u: BattleUnit) -> void:
 	u.move_target = null
+	u.waypoints.clear()
 	u.individual = true
 
 
