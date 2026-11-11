@@ -220,7 +220,7 @@ func test_sidestep_keeps_front_and_hold_keeps_order() -> void:
 	a.arrive_facing = Vector2.DOWN
 	b.step()
 	check(a.facing.is_equal_approx(Vector2.DOWN), "전선 자리를 옆으로 옮길 때는 정면을 유지한다")
-	b.add_unit(BattleUnit.new("c", "blue", _crowd(5), Vector2(11, 20), Vector2.UP))
+	b.add_unit(BattleUnit.new("c", "blue", _crowd(5), Vector2(11, 15), Vector2.UP))
 	for i in 3:
 		b.step()
 	check(a.move_target != null, "저지 태세 교전은 명령을 지우지 않는다")
@@ -317,3 +317,36 @@ func test_waypoints_are_followed_in_order() -> void:
 			passed_corner = true
 	check(passed_corner, "첫 목표를 지난다")
 	check(u.center.distance_to(Vector2(8, 8)) < 0.01 and u.move_target == null, "경유점까지 간다")
+
+
+func test_enemy_next_to_objective_contests_capture() -> void:
+	var b := _battle()
+	var rect := Rect2i(10, 10, 4, 4)
+	b.add_unit(BattleUnit.new("a", "red", _crowd(5), Vector2(11, 11)))
+	check(b.holds("red", rect), "구역 안에 아군만 있으면 점령")
+	var e := b.add_unit(BattleUnit.new("e", "blue", _crowd(5), Vector2(11, 15)))
+	check(not b.holds("red", rect), "구역 바로 밖의 적도 점령을 막는다")
+	e.morale = 5.0
+	check(b.holds("red", rect), "패주한 적은 막지 못한다")
+
+
+func test_tanks_pass_head_on() -> void:
+	var b := _battle()
+	var tank: UnitType = types["medium_tank_platoon"]
+	var a := b.add_unit(BattleUnit.new("a", "red", tank, Vector2(10, 30), Vector2.UP, "line", 3))
+	var c := b.add_unit(BattleUnit.new("c", "red", tank, Vector2(10, 10), Vector2.DOWN, "line", 3))
+	a.move_target = Vector2(10, 5)
+	c.move_target = Vector2(10, 35)
+	for i in 240:
+		b.step()
+	check(a.move_target == null and c.move_target == null, "마주 오는 전차 소대가 비켜 지나간다")
+
+
+func test_gun_fire_needs_crew() -> void:
+	var m := BattleUnit.new("m", "red", types["mortar_platoon"], Vector2(10, 10))
+	var w: WeaponType = m.type.weapons[0]
+	check(m.weapon_count(w) == 3, "온전하면 세 문")
+	for i in m.elements.size():
+		if m.elements[i]["kind"] == "man" and i < m.elements.size() - 2:
+			m.elements[i]["hp"] = 0.0
+	check(m.weapon_count(w) == 1, "사수 둘이면 한 문만 쏜다")

@@ -221,7 +221,8 @@ func _last_stand() -> void:
 				lost = true
 		if lost and held.size() > 0:
 			var rect := held[0]
-			var y := float(rect.end.y) if line.enemy_dir.y > 0.0 else float(rect.position.y - 1)
+			# 구역 안 가장자리 줄에 선다. 구역 밖에 서면 점령을 막지 못한다.
+			var y := float(rect.end.y - 1) if line.enemy_dir.y > 0.0 else float(rect.position.y)
 			line.points = PackedVector2Array([Vector2(rect.position.x - 1, y), Vector2(rect.end.x, y)])
 			line.offensive = PackedVector2Array()
 			line.retreat = PackedVector2Array()

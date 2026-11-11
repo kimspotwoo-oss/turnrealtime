@@ -73,7 +73,8 @@ func slot_of(unit_id: String) -> float:
 	return _slots.get(unit_id, {}).get("slot", -1.0)
 
 
-## 무너진(패닉·패주·전멸) 부대 자리에 가장 가까운 예비대를 보낸다.
+## 무너진(패닉·패주·전멸) 부대 자리에 가장 가까운 예비대를 보낸다. 무너진 부대는
+## 예비대로 돌아가서, 회복하면 다시 구멍을 메울 수 있다.
 func _fill_gaps(battle: Battle) -> void:
 	for i in units.size():
 		var u := battle.unit_by_id(units[i])
@@ -87,6 +88,10 @@ func _fill_gaps(battle: Battle) -> void:
 			continue
 		reserves.erase(r.id)
 		_slots.erase(units[i])
+		if u != null and u.is_alive():
+			u.move_target = null
+			u.waypoints.clear()
+			reserves.append(u.id)
 		units[i] = r.id
 		send_to_slot(r, slot["slot"], slot["target"])
 

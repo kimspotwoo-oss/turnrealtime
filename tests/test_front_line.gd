@@ -76,7 +76,8 @@ func test_reserve_fills_broken_slot() -> void:
 	b.step()
 	check(line.units.has("r") and not line.units.has("u0"), "예비대가 무너진 부대 자리에 들어간다")
 	check(r.move_target == slot_target, "예비대가 그 자리로 간다")
-	check(line.reserves.is_empty(), "예비대 목록에서 빠진다")
+	check(not line.reserves.has("r") and line.reserves.has("u0"), "예비대 목록에서 빠지고, 무너진 부대가 예비대로 돌아간다")
+	check(broken.move_target == null, "무너진 부대는 옛 자리로 혼자 가지 않는다")
 
 
 func test_units_face_enemy_after_small_adjustment() -> void:

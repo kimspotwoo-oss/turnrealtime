@@ -29,16 +29,17 @@ const HOLD_REASONS := {
 	"pinned": "고착됨 (제압이 100 아래로 내려가야 움직임)",
 	"melee": "근접전 중이라 앞으로 나가지 못함",
 	"blocked": "다른 전차에 길이 막힘",
-	"engaged": "교전 중 (저지·공격 태세로 멈춤)",
+	"engaged": "교전 중이라 멈춤 (계속 가려면 태세를 '무시'로)",
 }
 ## 보이지 않는 적에게 맞은 방향을 보여 주는 시간 (틱).
 const UNSEEN_TICKS := 10
 
-enum Mode { SELECT, MOVE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DRAW_OFFENSIVE, DRAW_RETREAT_LINE }
+enum Mode { SELECT, MOVE, FACE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DRAW_OFFENSIVE, DRAW_RETREAT_LINE }
 
 const MODE_HINTS := {
 	Mode.SELECT: "부대를 누르거나 끌어서 고르세요.",
 	Mode.MOVE: "이동할 곳을 누르세요. Shift+클릭으로 경유점을 이어 찍을 수 있어요.",
+	Mode.FACE: "바라볼 곳을 누르세요. 이동 중이면 도착한 뒤에 그쪽을 봅니다.",
 	Mode.RETREAT_POINT: "후퇴지를 누르세요.",
 	Mode.FIRE_POINT: "포격할 지점을 누르세요.",
 	Mode.FIRE_PREDICT: "예측 사격할 적 부대를 누르세요.",
@@ -202,6 +203,10 @@ func click_at(p: Vector2, add := false) -> void:
 			_move_group(p, add)
 			if not add:
 				_set_mode(Mode.SELECT)
+		Mode.FACE:
+			for u in _own_selected():
+				Orders.face(u, p)
+			_set_mode(Mode.SELECT)
 		Mode.RETREAT_POINT:
 			for u in _own_selected():
 				Orders.set_retreat_point(u, p)
@@ -568,6 +573,7 @@ func _build_ui() -> void:
 	var order := _group(box, "order", "명령")
 	_button(order, "이동", func(): _set_mode(Mode.MOVE))
 	_button(order, "정지", func(): _each(func(u): Orders.stop(u)))
+	_button(order, "방향", func(): _set_mode(Mode.FACE))
 	_button(order, "후퇴지", func(): _set_mode(Mode.RETREAT_POINT))
 	var fire := _group(box, "fire", "포격")
 	_button(fire, "지점", func(): _set_mode(Mode.FIRE_POINT))
@@ -668,7 +674,7 @@ func _goal_text() -> String:
 func make_report() -> String:
 	var lines: Array[String] = ["— 턴 %d 보고 —" % battle.turn]
 	for u in battle.units:
-		if u.side != PLAYER_SIDE or u.turn_log.is_empty():
+		if u.side != PLAYER_SIDE or u.turn_log.is_empty() or u.turn_log.get("alive", 0) == 0:
 			continue
 		var parts: Array[String] = []
 		var lost: int = u.turn_log.get("lost", 0)
@@ -686,6 +692,9 @@ func make_report() -> String:
 			causes.append("보이지 않는 적의 사격")
 		if u.turn_log.get("shock", 0) > 0:
 			causes.append("기습 충격")
+		var by: Dictionary = u.turn_log.get("by", {})
+		for who in by:
+			causes.append("%s에게 %d" % [who, by[who]])
 		if parts.is_empty() and causes.is_empty():
 			continue
 		var text := "%s: %s" % [u.id, ", ".join(parts) if not parts.is_empty() else "피해 없음"]

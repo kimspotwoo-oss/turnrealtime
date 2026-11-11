@@ -157,8 +157,10 @@ func weapon_count(w: WeaponType) -> int:
 	if total == 0:
 		return 0
 	var n := ceili(w.count * float(alive_count(w.scale)) / total)
-	if w.scale == "gun" and alive_count("man") == 0:
-		return 0
+	if w.scale == "gun":
+		# 포 한 문을 다루는 데 처음 인원 비율만큼 사람이 든다. 남은 사람만큼만 쏜다.
+		var crew_per_gun := float(initial_count("man")) / total
+		n = mini(n, ceili(alive_count("man") / crew_per_gun)) if crew_per_gun > 0.0 else n
 	return n
 
 

@@ -5,6 +5,14 @@ extends RefCounted
 ## 화면과 상관없는 순수 계산이라 테스트에서 그대로 돌릴 수 있다. 랜덤은 모두 rng 하나를
 ## 거치므로 같은 시드와 같은 명령이면 항상 같은 결과가 나온다.
 
+## 전개한 포 진지는 낮게 엎드려 있어서 직사로 맞히기 어렵다.
+const GUN_PROFILE := 0.5
+## 최대 사거리에서 주는 제압의 비율 (가까이서는 1).
+const FAR_SUPPRESSION := 0.3
+## 저지 태세가 멈춰 서는 거리 (교전 거리 대비). 멀리 보이는 적 때문에 행군이 서지 않게 한다.
+const HOLD_STOP_FRACTION := 0.6
+## 이 거리(칸) 안에 싸울 수 있는 적이 있으면 점령 구역을 차지한 것으로 치지 않는다.
+const CONTEST_TILES := 2
 ## 쏜 부대는 이 틱 동안 맞은 쪽에 위치가 드러난다 (총구 화염·소리). 포의 사격 간격보다 길어서
 ## 계속 쏘는 동안에는 계속 보인다.
 const MUZZLE_REVEAL_TICKS := 6
@@ -235,7 +243,8 @@ func _move() -> void:
 		var moved := false
 		for angle in DETOUR_ANGLES:
 			var dir := to.normalized().rotated(deg_to_rad(angle))
-			var facing := _move_facing(u, dir, remaining, retreating)
+			# 비켜 갈 때는 대형을 돌리지 않고 옆걸음한다. 돌리면 옆 부대와 더 겹친다.
+			var facing := _move_facing(u, dir, remaining, retreating) if angle == 0.0 else u.facing
 			var next_center := u.center + dir * step_len
 			if _vehicle_blocked(u, next_center, facing):
 				continue
@@ -430,7 +439,9 @@ func _engage() -> void:
 			BattleUnit.Stance.RETREAT:
 				u.move_target = u.retreat_point
 			BattleUnit.Stance.HOLD:
-				# 저지: 그 자리에 멈춰 막는다. 적 진로 앞으로 나가는 건 나중에.
+				# 저지: 적이 사거리 깊이 들어오면 그 자리에 멈춰 막는다. 적 진로 앞으로 나가는 건 나중에.
+				if d > engage_range * HOLD_STOP_FRACTION:
+					continue
 				u.engage_point = u.center
 				if u.arrive_facing != null:
 					u.facing = u.arrive_facing
@@ -508,7 +519,10 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 		acc *= SPOTTED_ACCURACY
 	var unseen := not can_see(target, u)
 	var target_tiles := target.tiles()
-	hits.append(_hit(target, -1, 0.0, w.suppression * n, u, unseen))
+	var near := 1.0 - clampf(d / w.range_tiles, 0.0, 1.0)
+	hits.append(_hit(target, -1, 0.0, w.suppression * n * lerpf(FAR_SUPPRESSION, 1.0, near), u, unseen))
+	if target.type.setup_ticks > 0 and target.deployed:
+		acc *= GUN_PROFILE
 	u.last_target = target.id
 	u.last_fire_point = null
 	u.last_fire_tick = tick
@@ -790,12 +804,17 @@ func _apply(hits: Array[Dictionary]) -> void:
 				e["hp"] = maxf(0.0, e["hp"] - h["damage"])
 				if e["hp"] == 0.0:
 					losses[t] = losses.get(t, 0) + 1
+					if h["attacker"] != null:
+						var by: Dictionary = t.turn_log.get("by", {})
+						var who: String = h["attacker"].type.name if h["attacker"].side != t.side else "아군 포격"
+						by[who] = by.get(who, 0) + 1
+						t.turn_log["by"] = by
 		# 전차 승무원은 장갑 안에 있어서 제압되지 않는다.
 		if not t.type.is_vehicle():
 			t.suppression = minf(Morale.SUPPRESSION_MAX, t.suppression + h["suppression"])
 		if h["attacker"] != null:
 			t.last_attacked_tick = tick
-			if not side_knows(t.side, h["attacker"]):
+			if h["attacker"].side != t.side and not side_knows(t.side, h["attacker"]):
 				t.unseen_from = h["attacker"].center
 				t.unseen_tick = tick
 				if idx >= 0:
@@ -880,17 +899,18 @@ func _check_victory() -> void:
 			return
 
 
-## 그 진영의 싸울 수 있는 부대가 구역 안에 있고, 적은 없으면 점령.
+## 그 진영의 싸울 수 있는 부대가 구역 안에 있고, 구역과 그 둘레 CONTEST_TILES 칸 안에
+## 싸울 수 있는 적이 없으면 점령. 구역 바로 밖에 버티는 적도 점령을 막는다.
 func holds(side: String, rect: Rect2i) -> bool:
 	var mine := false
+	var around := rect.grow(CONTEST_TILES)
 	for u in units:
 		if not u.is_alive() or u.state() == Morale.State.ROUTED:
 			continue
 		for t in u.tiles():
-			if rect.has_point(t):
-				if u.side == side:
-					mine = true
-				else:
-					return false
+			if u.side == side and rect.has_point(t):
+				mine = true
 				break
+			if u.side != side and around.has_point(t):
+				return false
 	return mine

@@ -33,6 +33,16 @@ static func stop(u: BattleUnit) -> void:
 	u.individual = true
 
 
+## 바라볼 방향. 이동 중이면 도착한 뒤에 그쪽을 본다.
+static func face(u: BattleUnit, p: Vector2) -> void:
+	var dir := p - u.center
+	if dir.is_zero_approx():
+		return
+	u.arrive_facing = dir.normalized()
+	if u.move_target == null:
+		u.facing = u.arrive_facing
+
+
 static func set_retreat_point(u: BattleUnit, p: Vector2) -> void:
 	u.retreat_point = p
 
