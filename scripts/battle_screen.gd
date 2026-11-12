@@ -651,6 +651,8 @@ func _draw() -> void:
 		_draw_line_points(line.points, color, 3.0)
 		_draw_line_points(line.offensive, color.lightened(0.4), 2.0, true)
 		_draw_line_points(line.retreat, color.darkened(0.3), 2.0, true)
+	if not running:
+		_draw_reach()
 	for u in battle.units:
 		if u.is_alive() and is_shown(u):
 			_draw_unit(u)
@@ -667,8 +669,6 @@ func _draw() -> void:
 		for u in battle.units:
 			if u.is_alive() and u.side == PLAYER_SIDE and not selected.has(u):
 				_draw_orders_faint(u)
-	if not running:
-		_draw_reach()
 	for u in _own_selected():
 		_draw_orders(u)
 	_draw_drags()
@@ -766,7 +766,7 @@ func _draw_orders_faint(u: BattleUnit) -> void:
 	draw_circle(_px(from), 2.5, color)
 
 
-## 부대 하나만 골랐을 때, 이번 턴에 닿을 수 있는 범위의 테두리.
+## 부대 하나만 골랐을 때, 이번 턴에 닿을 수 있는 범위. 사거리 원과 헷갈리지 않게 옅게 칠한다.
 func _draw_reach() -> void:
 	var own := _own_selected()
 	if own.size() != 1 or selected.size() != 1:
@@ -779,9 +779,13 @@ func _draw_reach() -> void:
 		var base: float = u.type.speed["vehicle"] if u.type.is_vehicle() else u.type.speed["foot"]
 		var budget := base * battle.turn_seconds / 60.0 * (Battle.REVERSE_SPEED if reverse else 1.0)
 		_reach = battle.map.reachable(u.center, budget, u.type.is_vehicle(), Battle.road_factor(u))
-	var color := Color(1, 1, 1, 0.55)
+	var color := Color(1, 1, 1, 0.7)
+	var top := Vector2i(0, battle.map.height)
 	for t in _reach:
 		var o := Vector2(t) * TILE_PX
+		draw_rect(Rect2(o, Vector2(TILE_PX, TILE_PX)), Color(1, 1, 1, 0.22))
+		if t.y < top.y:
+			top = t
 		if not _reach.has(t + Vector2i.UP):
 			draw_line(o, o + Vector2(TILE_PX, 0), color, 1.5)
 		if not _reach.has(t + Vector2i.DOWN):
@@ -790,6 +794,8 @@ func _draw_reach() -> void:
 			draw_line(o, o + Vector2(0, TILE_PX), color, 1.5)
 		if not _reach.has(t + Vector2i.RIGHT):
 			draw_line(o + Vector2(TILE_PX, 0), o + Vector2(TILE_PX, TILE_PX), color, 1.5)
+	if not _reach.is_empty():
+		_draw_label(Vector2(top) * TILE_PX + Vector2(-30, -6), "이번 턴 이동 범위", Color.WHITE)
 
 
 ## 끌고 있는 것의 미리 보기: 대형 배치 선과 그리는 경로.
