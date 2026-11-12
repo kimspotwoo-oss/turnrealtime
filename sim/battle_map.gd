@@ -68,6 +68,38 @@ func move_cost(tile: Vector2i, vehicle: bool, road_factor := 1.0) -> float:
 	return 1.0 / p["move_foot"]
 
 
+## from 에서 budget (개활지 칸 수로 센 이동량) 안에 닿는 칸들. 칸 → 든 이동량.
+func reachable(from: Vector2, budget: float, vehicle: bool, road_factor := 1.0) -> Dictionary:
+	var start := _clamp_tile(Vector2i(from.round()))
+	var cost := {start: 0.0}
+	var open: Array[Vector2i] = [start]
+	while not open.is_empty():
+		# 범위가 작아서 가장 싼 칸을 그냥 훑어 찾는다.
+		var best := 0
+		for i in range(1, open.size()):
+			if cost[open[i]] < cost[open[best]]:
+				best = i
+		var cur: Vector2i = open[best]
+		open.remove_at(best)
+		for dy in [-1, 0, 1]:
+			for dx in [-1, 0, 1]:
+				if dx == 0 and dy == 0:
+					continue
+				var n := cur + Vector2i(dx, dy)
+				if not in_bounds(n):
+					continue
+				var step := move_cost(n, vehicle, road_factor) * (1.414 if dx != 0 and dy != 0 else 1.0)
+				var c: float = cost[cur] + step
+				if c > budget or c >= cost.get(n, INF):
+					continue
+				if not cost.has(n):
+					open.append(n)
+				elif not open.has(n):
+					open.append(n)
+				cost[n] = c
+	return cost
+
+
 ## 지형 비용으로 가장 빨리 가는 길. 돌아서 가는 점들만 남기고, 마지막 점은 to 이다.
 ## 같은 비용 이하의 칸만 지나는 구간은 곧게 펴서 계단 모양으로 걷지 않게 한다.
 func find_path(from: Vector2, to: Vector2, vehicle: bool, road_factor := 1.0) -> PackedVector2Array:

@@ -350,3 +350,22 @@ func test_gun_fire_needs_crew() -> void:
 		if m.elements[i]["kind"] == "man" and i < m.elements.size() - 2:
 			m.elements[i]["hp"] = 0.0
 	check(m.weapon_count(w) == 1, "사수 둘이면 한 문만 쏜다")
+
+
+func test_focus_target_is_shot_first() -> void:
+	var b := _battle()
+	var a := b.add_unit(BattleUnit.new("a", "red", _duelist(), Vector2(10, 10), Vector2.DOWN))
+	b.add_unit(BattleUnit.new("near", "blue", _crowd(5), Vector2(10, 13), Vector2.UP))
+	var far := b.add_unit(BattleUnit.new("far", "blue", _crowd(5), Vector2(10, 20), Vector2.UP))
+	Orders.focus(a, far)
+	for i in 6:
+		b.step()
+	check(a.last_target == "far", "가까운 적보다 우선 사격 목표를 먼저 쏜다")
+
+
+func test_reachable_respects_terrain() -> void:
+	var map := BattleMap.new(40, 40)
+	map.fill_rect(Rect2i(0, 12, 40, 6), "forest")
+	var reach := map.reachable(Vector2(20, 20), 6.0, true)
+	check(reach.has(Vector2i(26, 20)) and not reach.has(Vector2i(27, 20)), "개활지는 이동량만큼")
+	check(reach.has(Vector2i(20, 17)) and not reach.has(Vector2i(20, 16)), "숲은 전차가 느리게 들어간다")

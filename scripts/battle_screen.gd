@@ -1,9 +1,18 @@
 extends Node2D
 ## 집중전투 화면. 준비기간에 명령을 내리고, 실행기간을 지켜본다.
 ##
-## 마우스: 왼쪽 클릭 = 선택·명령 (이동 중 Shift = 경유점 추가), 왼쪽 끌기 = 여러 부대 선택, 오른쪽 클릭 = 그리기 완료·모드 취소,
-## 가운데 끌기 = 화면 이동, 휠 = 확대·축소.
-## 키보드: 스페이스 = 실행, Enter = 그리기 완료, Esc = 취소, F1 = 전체 보기(시험용).
+## 마우스
+##   왼쪽 클릭 = 선택 (Shift = 추가, 두 번 클릭 = 같은 종류 모두), 빈 땅에서 왼쪽 끌기 = 범위 선택,
+##   아군 부대에서 왼쪽 끌기 = 경로 그리기 (적 위에서 놓으면 우선 사격).
+##   오른쪽 클릭 = 이동 (Shift = 경유점, Ctrl = 후진), 적 위에서 오른쪽 클릭 = 우선 사격,
+##   오른쪽 끌기 = 대형 배치 (선 길이 = 폭, 선에 수직 = 정면).
+##   가운데 끌기 = 화면 이동, 휠 = 확대·축소.
+## 터치
+##   누르기 = 선택, 부대에서 끌기 = 경로, 빈 땅 끌기 = 화면 이동, 두 손가락 = 확대·축소.
+##   이동·대형 배치·후진은 오른쪽 칸의 단추로.
+## 키보드
+##   스페이스 = 실행 / 일시정지, 1~4 = 태세, M 이동, R 후진, F 방향, G 대형 배치, S 정지,
+##   Tab = 다음 부대, Ctrl+A = 모두, O = 모든 부대 명령 보기, Enter = 그리기 완료, Esc = 취소, F1 = 전체 보기(시험용).
 
 const STAGE := "res://data/stages/practice.json"
 const TILE_PX := 20.0
@@ -33,12 +42,19 @@ const HOLD_REASONS := {
 }
 ## 보이지 않는 적에게 맞은 방향을 보여 주는 시간 (틱).
 const UNSEEN_TICKS := 10
+## 이보다 덜 움직이고 떼면 끌기가 아니라 클릭 (칸).
+const CLICK_SLOP := 0.6
+const DOUBLE_CLICK_MSEC := 350
+## 경로를 그릴 때 점을 찍는 간격 (칸).
+const PATH_SPACING := 1.0
 
-enum Mode { SELECT, MOVE, FACE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DRAW_OFFENSIVE, DRAW_RETREAT_LINE }
+enum Mode { SELECT, MOVE, REVERSE, FORMATION, FACE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DRAW_OFFENSIVE, DRAW_RETREAT_LINE }
 
 const MODE_HINTS := {
-	Mode.SELECT: "부대를 누르거나 끌어서 고르세요.",
+	Mode.SELECT: "오른쪽 클릭: 이동 (Shift 경유점)\n적에 오른쪽 클릭: 우선 사격\n오른쪽 끌기: 대형 배치\n부대에서 끌기: 경로 그리기",
 	Mode.MOVE: "이동할 곳을 누르세요. Shift+클릭으로 경유점을 이어 찍을 수 있어요.",
+	Mode.REVERSE: "후진할 곳을 누르세요. 지금 정면을 유지한 채 절반 속도로 물러납니다.",
+	Mode.FORMATION: "세울 자리를 끌어서 그으세요.\n선 길이가 폭이고, 왼쪽에서 오른쪽으로 그으면 위쪽이 정면입니다.",
 	Mode.FACE: "바라볼 곳을 누르세요. 이동 중이면 도착한 뒤에 그쪽을 봅니다.",
 	Mode.RETREAT_POINT: "후퇴지를 누르세요.",
 	Mode.FIRE_POINT: "포격할 지점을 누르세요.",
@@ -55,10 +71,30 @@ var draft := PackedVector2Array()
 var running := false
 var speed_index := 0
 var show_all := false
+## 실행기간을 잠시 멈춤.
+var paused := false
+## 고르지 않은 아군 부대의 명령도 흐리게 보여 준다.
+var show_orders := false
+## 켜면 누를 때마다 선택에 더하고, 터치에서도 끌어서 범위 선택.
+var multi_select := false
 
 var _tick_accum := 0.0
 var _drag_start = null
 var _panning := false
+var _press_tile = null
+## 대형 배치 선의 시작점 (오른쪽 끌기 또는 대형 배치 모드).
+var _place_start = null
+## 경로를 그리는 중인 부대와 지금까지의 점.
+var _path_unit: BattleUnit = null
+var _path := PackedVector2Array()
+var _touches := {}
+var _touch_used := false
+var _last_click_unit: BattleUnit = null
+var _last_click_msec := 0
+var _reach_key := ""
+var _reach := {}
+var _multi_button: Button
+var _orders_button: Button
 var _terrain_tex: ImageTexture
 var _camera: Camera2D
 
@@ -102,6 +138,7 @@ func start_turn() -> void:
 	if running or battle.winner != "":
 		return
 	_set_mode(Mode.SELECT)
+	paused = false
 	battle.begin_turn()
 	_known_at_start.clear()
 	for e in battle.known_enemies(PLAYER_SIDE):
@@ -112,7 +149,7 @@ func start_turn() -> void:
 
 
 func _process(delta: float) -> void:
-	if not running:
+	if not running or paused:
 		return
 	_tick_accum += delta * SPEEDS[speed_index]
 	while _tick_accum >= 1.0 and not battle.turn_over():
@@ -134,54 +171,309 @@ func _prune_selection() -> void:
 # --- 입력 ---------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		_on_mouse_button(event)
+	if event is InputEventScreenTouch:
+		_on_touch(event)
+	elif event is InputEventScreenDrag:
+		_on_touch_drag(event)
+	elif event is InputEventMouseButton:
+		if _touches.size() < 2:
+			_on_mouse_button(event)
 	elif event is InputEventMouseMotion:
+		if _touches.size() >= 2:
+			return
 		if _panning:
 			_camera.position -= event.relative / _camera.zoom
-		if _drag_start != null or not draft.is_empty():
-			queue_redraw()
+		if _path_unit != null:
+			var p := _tile_of(event.position)
+			if _path.is_empty() or _path[_path.size() - 1].distance_to(p) >= PATH_SPACING:
+				_path.append(p)
+		queue_redraw()
 	elif event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_SPACE:
+		_on_key(event)
+
+
+func _on_key(event: InputEventKey) -> void:
+	match event.keycode:
+		KEY_SPACE:
+			if running:
+				toggle_pause()
+			else:
 				start_turn()
-			KEY_ENTER, KEY_KP_ENTER:
-				finish_draft()
-			KEY_ESCAPE:
-				_set_mode(Mode.SELECT)
-			KEY_F1:
-				show_all = not show_all
-				queue_redraw()
+		KEY_ENTER, KEY_KP_ENTER:
+			finish_draft()
+		KEY_ESCAPE:
+			if mode == Mode.SELECT and draft.is_empty():
+				selected.clear()
+			_set_mode(Mode.SELECT)
+			_refresh_ui()
+		KEY_F1:
+			show_all = not show_all
+		KEY_O:
+			show_orders = not show_orders
+		KEY_TAB:
+			_select_next(-1 if event.shift_pressed else 1)
+		KEY_A:
+			if event.ctrl_pressed or event.meta_pressed:
+				box_select(Rect2(-1, -1, battle.map.width + 2, battle.map.height + 2))
+		KEY_1, KEY_2, KEY_3, KEY_4:
+			if _can_order():
+				Orders.set_stance(battle, _own_selected(), (event.keycode - KEY_1) as BattleUnit.Stance)
+				_refresh_ui()
+		KEY_M:
+			if _can_order():
+				_set_mode(Mode.MOVE)
+		KEY_R:
+			if _can_order():
+				_set_mode(Mode.REVERSE)
+		KEY_F:
+			if _can_order():
+				_set_mode(Mode.FACE)
+		KEY_G:
+			if _can_order():
+				_set_mode(Mode.FORMATION)
+		KEY_S:
+			if _can_order():
+				_each(func(u): Orders.stop(u))
+	queue_redraw()
+
+
+func _can_order() -> bool:
+	return not running and battle.winner == "" and not _own_selected().is_empty()
+
+
+func toggle_pause() -> void:
+	if running:
+		paused = not paused
+		_refresh_ui()
+
+
+## Tab: 다음 아군 부대를 고르고 화면을 그리로 옮긴다.
+func _select_next(step: int) -> void:
+	var own: Array[BattleUnit] = []
+	for u in battle.units:
+		if u.side == PLAYER_SIDE and u.is_alive():
+			own.append(u)
+	if own.is_empty():
+		return
+	var i := own.find(selected[0]) if selected.size() > 0 else -1
+	var next: BattleUnit = own[posmod(i + step, own.size())]
+	selected.clear()
+	selected.append(next)
+	_camera.position = _px(next.center) + Vector2(150, 0) / _camera.zoom
+	_refresh_ui()
+
+
+func _tile_of(screen_pos: Vector2) -> Vector2:
+	return get_canvas_transform().affine_inverse() * screen_pos / TILE_PX - Vector2(0.5, 0.5)
+
+
+func _zoom_by(factor: float) -> void:
+	_camera.zoom = (_camera.zoom * factor).clamp(Vector2(0.4, 0.4), Vector2(3, 3))
+
+
+# 터치: 한 손가락은 마우스 왼쪽 버튼처럼 오고 (빈 땅을 끌면 화면 이동), 두 손가락은 확대·축소와 화면 이동.
+func _on_touch(event: InputEventScreenTouch) -> void:
+	_touch_used = true
+	if event.pressed:
+		_touches[event.index] = event.position
+		if _touches.size() >= 2:
+			_cancel_drags()
+	else:
+		_touches.erase(event.index)
+
+
+func _on_touch_drag(event: InputEventScreenDrag) -> void:
+	if _touches.size() < 2 or not _touches.has(event.index):
+		_touches[event.index] = event.position
+		return
+	var other: Vector2 = event.position
+	for i in _touches:
+		if i != event.index:
+			other = _touches[i]
+	var before: float = (_touches[event.index] as Vector2).distance_to(other)
+	var after := event.position.distance_to(other)
+	if before > 1.0 and after > 1.0:
+		_zoom_by(after / before)
+	_camera.position -= event.relative / _camera.zoom / 2.0
+	_touches[event.index] = event.position
+	queue_redraw()
+
+
+func _cancel_drags() -> void:
+	_drag_start = null
+	_place_start = null
+	_path_unit = null
+	_path.clear()
+	_panning = false
+	_press_tile = null
+	queue_redraw()
 
 
 func _on_mouse_button(event: InputEventMouseButton) -> void:
+	var p := _tile_of(event.position)
 	match event.button_index:
 		MOUSE_BUTTON_WHEEL_UP:
-			_camera.zoom = (_camera.zoom * 1.1).clamp(Vector2(0.4, 0.4), Vector2(3, 3))
+			_zoom_by(1.1)
 		MOUSE_BUTTON_WHEEL_DOWN:
-			_camera.zoom = (_camera.zoom / 1.1).clamp(Vector2(0.4, 0.4), Vector2(3, 3))
+			_zoom_by(1.0 / 1.1)
 		MOUSE_BUTTON_MIDDLE:
 			_panning = event.pressed
 		MOUSE_BUTTON_RIGHT:
 			if event.pressed:
 				if draft.size() >= 2:
 					finish_draft()
-				else:
+				elif mode != Mode.SELECT:
 					_set_mode(Mode.SELECT)
+				elif _can_order():
+					_place_start = p
+			elif _place_start != null:
+				var start: Vector2 = _place_start
+				_place_start = null
+				if start.distance_to(p) < CLICK_SLOP:
+					command_at(p, event.shift_pressed, event.ctrl_pressed)
+				else:
+					place_formation(start, p, event.shift_pressed)
 		MOUSE_BUTTON_LEFT:
-			var p := _mouse_tile()
 			if event.pressed:
-				if mode == Mode.SELECT:
-					_drag_start = p
-				else:
-					click_at(p, event.shift_pressed)
-			elif _drag_start != null:
-				var start: Vector2 = _drag_start
-				_drag_start = null
-				if start.distance_to(p) < 0.6:
-					click_at(p, event.shift_pressed)
-				else:
-					box_select(Rect2(start, Vector2.ZERO).expand(p), event.shift_pressed)
+				_on_left_press(p, event)
+			else:
+				_on_left_release(p, event)
+	queue_redraw()
+
+
+func _on_left_press(p: Vector2, event: InputEventMouseButton) -> void:
+	_press_tile = p
+	if mode == Mode.FORMATION:
+		_place_start = p
+		return
+	if mode != Mode.SELECT:
+		return
+	var u := unit_at(p)
+	if u != null and u.side == PLAYER_SIDE and not running and battle.winner == "" and not multi_select:
+		# 아군 부대에서 끌기 시작하면 경로 그리기.
+		_path_unit = u
+		_path.clear()
+	elif _touch_used and not multi_select:
+		_panning = true
+	else:
+		_drag_start = p
+
+
+func _on_left_release(p: Vector2, event: InputEventMouseButton) -> void:
+	if _press_tile == null:
+		return
+	var start: Vector2 = _press_tile
+	_press_tile = null
+	var add: bool = event.shift_pressed
+	var short := start.distance_to(p) < CLICK_SLOP
+	if mode == Mode.FORMATION:
+		_place_start = null
+		if not short:
+			place_formation(start, p, add)
+			_set_mode(Mode.SELECT)
+		return
+	if mode != Mode.SELECT:
+		click_at(p, add)
+		return
+	var path_unit := _path_unit
+	var path := _path.duplicate()
+	var was_panning := _panning
+	_path_unit = null
+	_path.clear()
+	_drag_start = null
+	_panning = false
+	if short:
+		var now := Time.get_ticks_msec()
+		var u := unit_at(p)
+		if u != null and u == _last_click_unit and now - _last_click_msec < DOUBLE_CLICK_MSEC:
+			select_same_type(u)
+		else:
+			click_at(p, add or multi_select)
+		_last_click_unit = u
+		_last_click_msec = now
+	elif path_unit != null:
+		if not selected.has(path_unit):
+			selected.clear()
+			selected.append(path_unit)
+		path.append(p)
+		order_path(path, add)
+	elif not was_panning:
+		box_select(Rect2(start, Vector2.ZERO).expand(p), add or multi_select)
+
+
+## 오른쪽 클릭 (또는 터치의 명령): 적이면 우선 사격, 땅이면 이동. add = 경유점으로 잇기, reverse = 후진.
+func command_at(p: Vector2, add := false, reverse := false) -> void:
+	if not _can_order():
+		return
+	var t := unit_at(p)
+	if t != null and t.side != PLAYER_SIDE:
+		for u in _own_selected():
+			Orders.focus(u, t)
+			if _has_indirect(u):
+				Orders.fire_predicted(u, t)
+	else:
+		_move_group(p, add, reverse)
+	_refresh_ui()
+	queue_redraw()
+
+
+## 끌어서 대형 배치: a→b 선 위에 고른 부대를 나란히 세운다.
+func place_formation(a: Vector2, b: Vector2, add := false) -> void:
+	if not _can_order():
+		return
+	Orders.place_on_segment(_own_selected(), a, b, add)
+	_refresh_ui()
+	queue_redraw()
+
+
+## 그린 경로대로 이동. 끝이 적 위면 그 적을 우선 사격한다.
+func order_path(points: PackedVector2Array, add := false) -> void:
+	if not _can_order() or points.is_empty():
+		return
+	var last := points[points.size() - 1]
+	var t := unit_at(last)
+	if t != null and t.side != PLAYER_SIDE:
+		for u in _own_selected():
+			Orders.focus(u, t)
+		points.remove_at(points.size() - 1)
+	if points.is_empty():
+		return
+	# simplify_path 는 첫 점을 뺀 나머지를 돌려주므로 첫 점을 한 번 더 넣는다.
+	points.insert(0, points[0])
+	var stops := simplify_path(points)
+	for i in stops.size():
+		_move_group(stops[i], add or i > 0)
+	_refresh_ui()
+	queue_redraw()
+
+
+## 끌어 그린 점들에서 꺾이는 곳만 남긴다 (Douglas–Peucker). 첫 점은 출발점으로 보고 뺀다.
+static func simplify_path(points: PackedVector2Array, tolerance := 1.0) -> PackedVector2Array:
+	if points.size() < 2:
+		return PackedVector2Array()
+	var a := points[0]
+	var b := points[points.size() - 1]
+	var worst := 0
+	var worst_d := 0.0
+	for i in range(1, points.size() - 1):
+		var d := (points[i] - Geometry2D.get_closest_point_to_segment(points[i], a, b)).length()
+		if d > worst_d:
+			worst_d = d
+			worst = i
+	if worst_d <= tolerance:
+		return PackedVector2Array([b])
+	var out := simplify_path(points.slice(0, worst + 1), tolerance)
+	out.append_array(simplify_path(points.slice(worst, points.size()), tolerance))
+	return out
+
+
+func select_same_type(u: BattleUnit) -> void:
+	selected.clear()
+	for o in battle.units:
+		if o.side == u.side and o.is_alive() and o.type == u.type and is_shown(o):
+			selected.append(o)
+	_refresh_ui()
+	queue_redraw()
 
 
 func _mouse_tile() -> Vector2:
@@ -199,10 +491,18 @@ func click_at(p: Vector2, add := false) -> void:
 				selected.clear()
 			if u != null and not selected.has(u):
 				selected.append(u)
-		Mode.MOVE:
-			_move_group(p, add)
+			elif u != null and add:
+				selected.erase(u)
+		Mode.MOVE, Mode.REVERSE:
+			var t := unit_at(p)
+			if mode == Mode.MOVE and t != null and t.side != PLAYER_SIDE:
+				command_at(p)
+			else:
+				_move_group(p, add, mode == Mode.REVERSE)
 			if not add:
 				_set_mode(Mode.SELECT)
+		Mode.FORMATION:
+			pass
 		Mode.FACE:
 			for u in _own_selected():
 				Orders.face(u, p)
@@ -241,7 +541,7 @@ func box_select(rect: Rect2, add := false) -> void:
 
 ## 여럿을 함께 옮기면 지금의 배치 모양을 유지한 채 옮긴다.
 ## waypoint 이면 지금 명령의 마지막 목적지 다음에 이어 붙인다.
-func _move_group(p: Vector2, waypoint := false) -> void:
+func _move_group(p: Vector2, waypoint := false, reverse := false) -> void:
 	var units := _own_selected()
 	if units.is_empty():
 		return
@@ -256,6 +556,8 @@ func _move_group(p: Vector2, waypoint := false) -> void:
 		var to: Vector2 = p + (starts[u] - c)
 		if waypoint:
 			Orders.add_waypoint(u, to)
+		elif reverse:
+			Orders.move_reverse(u, to)
 		else:
 			Orders.move(u, to)
 
@@ -361,8 +663,15 @@ func _draw() -> void:
 	for u in selected:
 		if u.is_alive() and is_shown(u):
 			_draw_ranges(u)
+	if show_orders:
+		for u in battle.units:
+			if u.is_alive() and u.side == PLAYER_SIDE and not selected.has(u):
+				_draw_orders_faint(u)
+	if not running:
+		_draw_reach()
 	for u in _own_selected():
 		_draw_orders(u)
+	_draw_drags()
 	for s in battle.shells:
 		draw_circle(_px(s["point"]), 3.0, Color.YELLOW)
 	if not draft.is_empty():
@@ -392,6 +701,11 @@ func _draw_unit(u: BattleUnit) -> void:
 	var c := _px(u.center)
 	draw_line(c, c + u.facing * TILE_PX * 1.2, Color.BLACK, 2.0)
 	UnitSymbol.draw(self, c, SYMBOL_PX, u.type.symbol_icon, u.type.symbol_echelon, u.side != PLAYER_SIDE, color, Color.WHITE if sel else Color.BLACK)
+	if u.side == PLAYER_SIDE or show_all:
+		if u.hold_reason == "pinned":
+			_draw_label(c + Vector2(SYMBOL_PX * 0.7, -SYMBOL_PX * 0.2), "고착", Color(1.0, 0.3, 0.2))
+		elif u.is_suppressed():
+			_draw_label(c + Vector2(SYMBOL_PX * 0.7, -SYMBOL_PX * 0.2), "제압", Color(1.0, 0.85, 0.2))
 	if u.state() != Morale.State.STEADY:
 		var badge := Color(1.0, 0.85, 0.2) if u.state() == Morale.State.SHAKEN else Color(1.0, 0.3, 0.2)
 		_draw_label(c + Vector2(-SYMBOL_PX * 0.6, SYMBOL_PX * 1.1), STATE_NAMES[u.state()], badge)
@@ -438,7 +752,74 @@ func _draw_unseen(u: BattleUnit) -> void:
 
 
 ## 고른 아군의 명령: 찾은 길을 따라 이동 목표와 경유점까지 점선, 후퇴지, 포격 지점.
+## 고르지 않은 부대의 이동 명령을 흐리게 (곧은 선으로만).
+func _draw_orders_faint(u: BattleUnit) -> void:
+	if u.move_target == null:
+		return
+	var color := Color(1, 1, 1, 0.45)
+	var from := u.center
+	var stops: Array[Vector2] = [u.move_target]
+	stops.append_array(u.waypoints)
+	for stop in stops:
+		draw_dashed_line(_px(from), _px(stop), color, 1.0, 4.0)
+		from = stop
+	draw_circle(_px(from), 2.5, color)
+
+
+## 부대 하나만 골랐을 때, 이번 턴에 닿을 수 있는 범위의 테두리.
+func _draw_reach() -> void:
+	var own := _own_selected()
+	if own.size() != 1 or selected.size() != 1:
+		return
+	var u := own[0]
+	var reverse := mode == Mode.REVERSE or u.reverse_move
+	var key := "%s %s %s %d" % [u.id, u.center.round(), reverse, battle.turn]
+	if key != _reach_key:
+		_reach_key = key
+		var base: float = u.type.speed["vehicle"] if u.type.is_vehicle() else u.type.speed["foot"]
+		var budget := base * battle.turn_seconds / 60.0 * (Battle.REVERSE_SPEED if reverse else 1.0)
+		_reach = battle.map.reachable(u.center, budget, u.type.is_vehicle(), Battle.road_factor(u))
+	var color := Color(1, 1, 1, 0.55)
+	for t in _reach:
+		var o := Vector2(t) * TILE_PX
+		if not _reach.has(t + Vector2i.UP):
+			draw_line(o, o + Vector2(TILE_PX, 0), color, 1.5)
+		if not _reach.has(t + Vector2i.DOWN):
+			draw_line(o + Vector2(0, TILE_PX), o + Vector2(TILE_PX, TILE_PX), color, 1.5)
+		if not _reach.has(t + Vector2i.LEFT):
+			draw_line(o, o + Vector2(0, TILE_PX), color, 1.5)
+		if not _reach.has(t + Vector2i.RIGHT):
+			draw_line(o + Vector2(TILE_PX, 0), o + Vector2(TILE_PX, TILE_PX), color, 1.5)
+
+
+## 끌고 있는 것의 미리 보기: 대형 배치 선과 그리는 경로.
+func _draw_drags() -> void:
+	var m := _mouse_tile()
+	if _place_start != null and (_place_start as Vector2).distance_to(m) >= CLICK_SLOP:
+		var a: Vector2 = _place_start
+		var n := _own_selected().size()
+		var front := (m - a).normalized().rotated(-PI / 2.0)
+		draw_line(_px(a), _px(m), Color.WHITE, 2.0)
+		for i in n:
+			var slot := a.lerp(m, (i + 0.5) / n)
+			draw_circle(_px(slot), 4.0, Color.WHITE)
+			draw_line(_px(slot), _px(slot + front * 1.5), Color.WHITE, 2.0)
+		_draw_label(_px(m) + Vector2(8, -8), "폭 %d칸" % roundi(a.distance_to(m) / maxi(n, 1)), Color.WHITE)
+	if _path_unit != null and not _path.is_empty():
+		var pts := PackedVector2Array([_path_unit.center])
+		pts.append_array(_path)
+		pts.append(m)
+		_draw_line_points(pts, Color.WHITE, 2.0)
+
+
 func _draw_orders(u: BattleUnit) -> void:
+	var focus := battle.unit_by_id(u.focus_target) if u.focus_target != "" else null
+	if focus != null and focus.is_alive() and is_shown(focus):
+		var fc := _px(focus.center)
+		draw_dashed_line(_px(u.center), fc, Color(1.0, 0.25, 0.2), 1.5, 5.0)
+		draw_arc(fc, TILE_PX * 0.9, 0.0, TAU, 20, Color(1.0, 0.25, 0.2), 2.0)
+		draw_line(fc - Vector2(TILE_PX * 1.2, 0), fc + Vector2(TILE_PX * 1.2, 0), Color(1.0, 0.25, 0.2), 1.5)
+		draw_line(fc - Vector2(0, TILE_PX * 1.2), fc + Vector2(0, TILE_PX * 1.2), Color(1.0, 0.25, 0.2), 1.5)
 	if u.move_target != null:
 		var stops: Array[Vector2] = [u.move_target]
 		stops.append_array(u.waypoints)
@@ -537,9 +918,13 @@ func _build_ui() -> void:
 	top.position = Vector2(8, 8)
 	top.add_theme_constant_override("separation", 8)
 	layer.add_child(top)
-	_run_button = _button(top, "실행 ▶", start_turn)
+	_run_button = _button(top, "실행 ▶", func(): toggle_pause() if running else start_turn())
 	_speed_button = _button(top, "속도 ×1", _cycle_speed)
 	_button(top, "처음부터", func(): load_stage(STAGE))
+	_multi_button = _button(top, "여러 개 선택", func(): multi_select = not multi_select; _refresh_ui())
+	_multi_button.toggle_mode = true
+	_orders_button = _button(top, "명령 모두 보기", func(): show_orders = not show_orders; _refresh_ui(); queue_redraw())
+	_orders_button.toggle_mode = true
 	_top_label = Label.new()
 	top.add_child(_top_label)
 
@@ -572,9 +957,13 @@ func _build_ui() -> void:
 	_button(width, "넓게 +", func(): _each(func(u): Orders.set_formation(u, u.formation, u.tile_count + 1)))
 	var order := _group(box, "order", "명령")
 	_button(order, "이동", func(): _set_mode(Mode.MOVE))
+	_button(order, "후진", func(): _set_mode(Mode.REVERSE))
+	_button(order, "대형 배치", func(): _set_mode(Mode.FORMATION))
 	_button(order, "정지", func(): _each(func(u): Orders.stop(u)))
-	_button(order, "방향", func(): _set_mode(Mode.FACE))
-	_button(order, "후퇴지", func(): _set_mode(Mode.RETREAT_POINT))
+	var order2 := _group(box, "order2", "")
+	_button(order2, "방향", func(): _set_mode(Mode.FACE))
+	_button(order2, "후퇴지", func(): _set_mode(Mode.RETREAT_POINT))
+	_button(order2, "우선 사격 해제", func(): _each(func(u): Orders.clear_focus(u)))
 	var fire := _group(box, "fire", "포격")
 	_button(fire, "지점", func(): _set_mode(Mode.FIRE_POINT))
 	_button(fire, "예측", func(): _set_mode(Mode.FIRE_PREDICT))
@@ -640,12 +1029,17 @@ func _refresh_ui() -> void:
 	if _top_label == null:
 		return
 	var phase := "실행기간 %d/%d초" % [battle.turn_tick, battle.turn_seconds] if running else "준비기간"
+	if running and paused:
+		phase += " (멈춤)"
 	var result := ""
 	if battle.winner != "":
 		result = "   승리!" if battle.winner == PLAYER_SIDE else "   패배"
 	var shown_turn := battle.turn if running or battle.winner != "" else battle.turn + 1
 	_top_label.text = "턴 %d / %d   %s%s   %s" % [mini(shown_turn, battle.turn_limit), battle.turn_limit, phase, result, _goal_text()]
-	_run_button.disabled = running or battle.winner != ""
+	_run_button.disabled = battle.winner != ""
+	_run_button.text = ("계속 ▶" if paused else "일시정지 ⏸") if running else "실행 ▶"
+	_multi_button.set_pressed_no_signal(multi_select)
+	_orders_button.set_pressed_no_signal(show_orders)
 	var own := _own_selected()
 	var can_order := not running and battle.winner == "" and not own.is_empty()
 	for key in _groups:

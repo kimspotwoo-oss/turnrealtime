@@ -7,7 +7,44 @@ static func move(u: BattleUnit, target: Vector2) -> void:
 	u.move_target = target
 	u.waypoints.clear()
 	u.arrive_facing = null
+	u.reverse_move = false
 	u.individual = true
+
+
+## 후진: 지금 정면(전차는 두꺼운 정면 장갑)을 적 쪽에 둔 채 물러난다. 속도는 절반.
+static func move_reverse(u: BattleUnit, target: Vector2) -> void:
+	move(u, target)
+	u.reverse_move = true
+
+
+## 대형 배치: 고른 부대들을 a→b 선 위에 나란히 세운다. 선의 길이가 전체 폭이 되고,
+## 정면은 선을 왼쪽에서 오른쪽으로 그었을 때 앞쪽(선에 수직)이다. waypoint 면 지금 명령 뒤에 잇는다.
+static func place_on_segment(units: Array[BattleUnit], a: Vector2, b: Vector2, waypoint := false) -> void:
+	if units.is_empty() or a.distance_to(b) < 0.01:
+		return
+	var along := (b - a).normalized()
+	var front := along.rotated(-PI / 2.0)
+	var sorted := units.duplicate()
+	sorted.sort_custom(func(x, y): return (x.center - a).dot(along) < (y.center - a).dot(along))
+	var width := roundi(a.distance_to(b) / sorted.size())
+	for i in sorted.size():
+		var u: BattleUnit = sorted[i]
+		var pos := a.lerp(b, (i + 0.5) / sorted.size())
+		if waypoint:
+			add_waypoint(u, pos)
+		else:
+			move(u, pos)
+		u.arrive_facing = front
+		set_formation(u, u.formation, width)
+
+
+## 우선 사격: 이 적이 보이고 사거리 안이면 다른 표적보다 먼저 쏜다.
+static func focus(u: BattleUnit, target: BattleUnit) -> void:
+	u.focus_target = target.id
+
+
+static func clear_focus(u: BattleUnit) -> void:
+	u.focus_target = ""
 
 
 ## 경유점: 지금 이동 목표(와 앞선 경유점)를 지난 뒤 이어서 간다. 이동 명령이 없으면 그냥 이동.
@@ -30,6 +67,8 @@ static func final_destination(u: BattleUnit) -> Variant:
 static func stop(u: BattleUnit) -> void:
 	u.move_target = null
 	u.waypoints.clear()
+	u.reverse_move = false
+	u.focus_target = ""
 	u.individual = true
 
 

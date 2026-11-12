@@ -71,3 +71,27 @@ func test_turn_can_be_stepped_by_screen() -> void:
 		c.step()
 	c.end_turn()
 	check(b.state_hash() == c.state_hash(), "화면처럼 틱을 나눠 돌려도 결과가 같다")
+
+
+func test_place_on_segment_sets_slots_width_and_facing() -> void:
+	var b := _battle()
+	var units := _units(b, ["p0", "p1"])
+	Orders.place_on_segment(units, Vector2(10, 20), Vector2(22, 20))
+	var xs: Array = units.map(func(u): return (u.move_target as Vector2).x)
+	xs.sort()
+	check_near(xs[0], 13.0, "첫 자리")
+	check_near(xs[1], 19.0, "둘째 자리")
+	check(units[0].tile_count == 6, "선 길이를 부대 수로 나눈 폭")
+	check((units[0].arrive_facing as Vector2).is_equal_approx(Vector2.UP), "왼쪽에서 오른쪽으로 그으면 위를 본다")
+
+
+func test_reverse_move_keeps_facing() -> void:
+	var b := _battle()
+	var u := _units(b, ["p0"])[0]
+	u.facing = Vector2.UP
+	var start := u.center
+	Orders.move_reverse(u, start + Vector2(0, 3))
+	for i in 10:
+		b.step()
+	check(u.center.y > start.y, "뒤로 물러난다")
+	check(u.facing.is_equal_approx(Vector2.UP), "정면은 그대로")

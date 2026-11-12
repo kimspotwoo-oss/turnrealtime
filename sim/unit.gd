@@ -32,6 +32,10 @@ var recent_losses: Array[Vector2i] = []
 var stance := Stance.HOLD
 ## 이동 목표 (칸 좌표) 또는 null.
 var move_target = null
+## 후진: 지금 정면을 유지한 채 이동한다 (느리다). 도착하거나 새 이동 명령을 받으면 풀린다.
+var reverse_move := false
+## 먼저 쏠 적 부대 id (직사). 보이고 사거리 안이면 다른 표적보다 먼저 쏜다.
+var focus_target := ""
 ## 이동 목표 다음에 차례로 갈 경유점.
 var waypoints: Array[Vector2] = []
 ## 지금 따라가는 길 (map.find_path 결과)과 그 길의 끝.

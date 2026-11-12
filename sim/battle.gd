@@ -42,6 +42,8 @@ const LOSS_SHOCK_WINDOW := 5
 const SPOTTED_ACCURACY := 0.5
 ## 자리를 옆으로 옮길 때는 정면을 유지한다: 이동 방향과 정해진 정면의 cos 이 이보다 작으면 옆걸음.
 const SIDESTEP_COS := 0.7
+## 후진할 때 속도 배수.
+const REVERSE_SPEED := 0.5
 ## 전차가 막히면 이 각도들로 비켜 간다 (도).
 const DETOUR_ANGLES := [0.0, 45.0, -45.0, 90.0, -90.0]
 
@@ -218,6 +220,7 @@ func _move() -> void:
 					u.move_target = u.waypoints.pop_front()
 				else:
 					u.move_target = null
+					u.reverse_move = false
 					if u.arrive_facing != null:
 						u.facing = u.arrive_facing
 			_settle(u)
@@ -239,12 +242,15 @@ func _move() -> void:
 		var speed := _speed(u) / 60.0
 		if u.is_suppressed():
 			speed *= 0.5
+		var reversing: bool = u.reverse_move and u.move_target != null and target == u.move_target
+		if reversing:
+			speed *= REVERSE_SPEED
 		var step_len := minf(speed, to.length())
 		var moved := false
 		for angle in DETOUR_ANGLES:
 			var dir := to.normalized().rotated(deg_to_rad(angle))
 			# 비켜 갈 때는 대형을 돌리지 않고 옆걸음한다. 돌리면 옆 부대와 더 겹친다.
-			var facing := _move_facing(u, dir, remaining, retreating) if angle == 0.0 else u.facing
+			var facing := _move_facing(u, dir, remaining, retreating) if angle == 0.0 and not reversing else u.facing
 			var next_center := u.center + dir * step_len
 			if _vehicle_blocked(u, next_center, facing):
 				continue
@@ -590,6 +596,8 @@ func _pick_direct_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 				score += 100.0
 		if e.last_target == u.id and tick - e.last_fire_tick <= 5:
 			score -= 30.0
+		if eid == u.focus_target:
+			score -= 2000.0
 		if score < best_score:
 			best_score = score
 			best = e
