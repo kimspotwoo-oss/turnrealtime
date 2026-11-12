@@ -31,7 +31,7 @@ const TERRAIN_COLORS := {
 }
 const DIFFICULTY_NAMES := {"easy": "쉬움", "normal": "보통", "hard": "어려움"}
 ## 난이도별 적 부대 숙련도 (충격에서 회복하는 속도만 다르다).
-const DIFFICULTY_EXPERIENCE := {"easy": "green", "normal": "regular", "hard": "veteran"}
+const DIFFICULTY_EXPERIENCE := {"easy": "recruit", "normal": "regular", "hard": "elite"}
 const STATE_NAMES := ["안정", "동요", "패닉", "패주"]
 const STANCE_NAMES := ["공격", "후퇴", "저지", "무시"]
 const FORMATION_NAMES := {"line": "횡대", "column": "종대", "wedge": "쐐기", "dispersed": "분산"}
