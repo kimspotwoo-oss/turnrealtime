@@ -29,6 +29,9 @@ const TERRAIN_COLORS := {
 	"forest": Color(0.25, 0.4, 0.22),
 	"village": Color(0.6, 0.55, 0.5),
 }
+const DIFFICULTY_NAMES := {"easy": "쉬움", "normal": "보통", "hard": "어려움"}
+## 난이도별 적 부대 숙련도 (충격에서 회복하는 속도만 다르다).
+const DIFFICULTY_EXPERIENCE := {"easy": "green", "normal": "regular", "hard": "veteran"}
 const STATE_NAMES := ["안정", "동요", "패닉", "패주"]
 const STANCE_NAMES := ["공격", "후퇴", "저지", "무시"]
 const FORMATION_NAMES := {"line": "횡대", "column": "종대", "wedge": "쐐기", "dispersed": "분산"}
@@ -71,6 +74,8 @@ var draft := PackedVector2Array()
 var running := false
 var speed_index := 0
 var show_all := false
+## 적 AI 난이도: easy, normal, hard. 바꾸면 다음 턴 판단부터 적용된다.
+var difficulty := "normal"
 ## 실행기간을 잠시 멈춤.
 var paused := false
 ## 고르지 않은 아군 부대의 명령도 흐리게 보여 준다.
@@ -94,6 +99,7 @@ var _last_click_msec := 0
 var _reach_key := ""
 var _reach := {}
 var _multi_button: Button
+var _difficulty_button: Button
 var _orders_button: Button
 var _terrain_tex: ImageTexture
 var _camera: Camera2D
@@ -121,6 +127,7 @@ func _ready() -> void:
 
 func load_stage(path: String) -> void:
 	battle = StageLoader.load_file(path)
+	set_difficulty(difficulty)
 	selected.clear()
 	_set_mode(Mode.SELECT)
 	running = false
@@ -162,6 +169,22 @@ func _process(delta: float) -> void:
 		_prune_selection()
 	_refresh_ui()
 	queue_redraw()
+
+
+func set_difficulty(d: String) -> void:
+	difficulty = d
+	for ai in battle.ai_players:
+		ai.difficulty = d
+	for u in battle.units:
+		if u.side != PLAYER_SIDE:
+			u.experience = DIFFICULTY_EXPERIENCE[d]
+	if _difficulty_button != null:
+		_difficulty_button.text = "난이도: %s" % DIFFICULTY_NAMES[d]
+
+
+func _cycle_difficulty() -> void:
+	var all := DefenseAI.DIFFICULTIES
+	set_difficulty(all[(all.find(difficulty) + 1) % all.size()])
 
 
 func _prune_selection() -> void:
@@ -927,6 +950,7 @@ func _build_ui() -> void:
 	_run_button = _button(top, "실행 ▶", func(): toggle_pause() if running else start_turn())
 	_speed_button = _button(top, "속도 ×1", _cycle_speed)
 	_button(top, "처음부터", func(): load_stage(STAGE))
+	_difficulty_button = _button(top, "난이도: %s" % DIFFICULTY_NAMES[difficulty], _cycle_difficulty)
 	_multi_button = _button(top, "여러 개 선택", func(): multi_select = not multi_select; _refresh_ui())
 	_multi_button.toggle_mode = true
 	_orders_button = _button(top, "명령 모두 보기", func(): show_orders = not show_orders; _refresh_ui(); queue_redraw())

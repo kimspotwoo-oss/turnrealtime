@@ -60,6 +60,7 @@ static func build(data: Dictionary, unit_types: Dictionary, seed_override := -1)
 						objectives.append_array(capture[side])
 				var ai := DefenseAI.new(d["side"], battle.front_line(d["front_line"]), objectives)
 				ai.personality = d.get("personality", "careful")
+				ai.difficulty = d.get("difficulty", "normal")
 				battle.ai_players.append(ai)
 	return battle
 
