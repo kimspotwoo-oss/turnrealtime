@@ -30,8 +30,6 @@ const TERRAIN_COLORS := {
 	"village": Color(0.6, 0.55, 0.5),
 }
 const DIFFICULTY_NAMES := {"easy": "쉬움", "normal": "보통", "hard": "어려움"}
-## 난이도별 적 부대 숙련도 (충격에서 회복하는 속도만 다르다).
-const DIFFICULTY_EXPERIENCE := {"easy": "recruit", "normal": "regular", "hard": "elite"}
 const STATE_NAMES := ["안정", "동요", "패닉", "패주"]
 const STANCE_NAMES := ["공격", "후퇴", "저지", "무시"]
 const FORMATION_NAMES := {"line": "횡대", "column": "종대", "wedge": "쐐기", "dispersed": "분산"}
@@ -74,7 +72,7 @@ var draft := PackedVector2Array()
 var running := false
 var speed_index := 0
 var show_all := false
-## 적 AI 난이도: easy, normal, hard. 바꾸면 다음 턴 판단부터 적용된다.
+## 적 AI 난이도: easy, normal, hard.
 var difficulty := "normal"
 ## 실행기간을 잠시 멈춤.
 var paused := false
@@ -126,8 +124,9 @@ func _ready() -> void:
 
 
 func load_stage(path: String) -> void:
-	battle = StageLoader.load_file(path)
-	set_difficulty(difficulty)
+	battle = StageLoader.load_file(path, {}, -1, difficulty)
+	if _difficulty_button != null:
+		_difficulty_button.text = "난이도: %s" % DIFFICULTY_NAMES[difficulty]
 	selected.clear()
 	_set_mode(Mode.SELECT)
 	running = false
@@ -171,15 +170,10 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
+## 난이도는 적 편성도 바꾸므로 전투를 처음부터 다시 연다. 그래서 첫 턴을 시작하기 전에만 바꿀 수 있다.
 func set_difficulty(d: String) -> void:
 	difficulty = d
-	for ai in battle.ai_players:
-		ai.difficulty = d
-	for u in battle.units:
-		if u.side != PLAYER_SIDE:
-			u.experience = DIFFICULTY_EXPERIENCE[d]
-	if _difficulty_button != null:
-		_difficulty_button.text = "난이도: %s" % DIFFICULTY_NAMES[d]
+	load_stage(STAGE)
 
 
 func _cycle_difficulty() -> void:
@@ -1067,6 +1061,7 @@ func _refresh_ui() -> void:
 	var shown_turn := battle.turn if running or battle.winner != "" else battle.turn + 1
 	_top_label.text = "턴 %d / %d   %s%s   %s" % [mini(shown_turn, battle.turn_limit), battle.turn_limit, phase, result, _goal_text()]
 	_run_button.disabled = battle.winner != ""
+	_difficulty_button.disabled = running or (battle.turn > 0 and battle.winner == "")
 	_run_button.text = ("계속 ▶" if paused else "일시정지 ⏸") if running else "실행 ▶"
 	_multi_button.set_pressed_no_signal(multi_select)
 	_orders_button.set_pressed_no_signal(show_orders)

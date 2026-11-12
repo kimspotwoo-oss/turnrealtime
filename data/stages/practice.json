@@ -70,5 +70,8 @@
 			"stance": "hold"
 		}
 	],
-	"ai": [{"side": "ai", "type": "defense", "front_line": "ai_main", "personality": "careful"}]
+	"ai": [{"side": "ai", "type": "defense", "front_line": "ai_main", "personality": "careful"}],
+	"difficulty": {
+		"easy": {"remove": ["a_tank2", "a_mortar2"], "extra_turns": 5}
+	}
 }
