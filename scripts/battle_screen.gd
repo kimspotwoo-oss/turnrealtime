@@ -12,7 +12,7 @@ extends Node2D
 ##   이동·대형 배치·후진은 오른쪽 칸의 단추로.
 ## 키보드
 ##   스페이스 = 실행 / 일시정지, 1~4 = 태세, M 이동, R 후진, F 방향, G 대형 배치, S 정지,
-##   Tab = 다음 부대, Ctrl+A = 모두, O = 모든 부대 명령 보기, Enter = 그리기 완료, Esc = 취소, F1 = 전체 보기(시험용).
+##   Tab = 다음 부대, Ctrl+A = 모두, O = 모든 부대 명령 보기, V = 시야 범위 보기, Enter = 그리기 완료, Esc = 취소, F1 = 전체 보기(시험용).
 
 const STAGE := "res://data/stages/practice.json"
 const TILE_PX := 20.0
@@ -76,6 +76,8 @@ var show_all := false
 var difficulty := "normal"
 ## 실행기간을 잠시 멈춤.
 var paused := false
+## 고른 부대의 시야 범위를 노란 테두리로 보여 준다.
+var show_vision := true
 ## 고르지 않은 아군 부대의 명령도 흐리게 보여 준다.
 var show_orders := false
 ## 켜면 누를 때마다 선택에 더하고, 터치에서도 끌어서 범위 선택.
@@ -97,6 +99,20 @@ var _last_click_msec := 0
 var _reach_key := ""
 var _reach := {}
 var _multi_button: Button
+var _vision_button: Button
+var _vision_key := ""
+var _vision := {}
+## 고른 부대 옆에 뜨는 명령 창.
+var _ctx: PanelContainer
+var _ctx_title: Label
+var _ctx_strength: ProgressBar
+var _ctx_strength_label: Label
+var _ctx_morale: ProgressBar
+var _ctx_morale_label: Label
+var _ctx_note: Label
+var _ctx_stances: Array[Button] = []
+var _ctx_rows: Array[Control] = []
+var _ctx_fire: Control
 var _difficulty_button: Button
 var _orders_button: Button
 var _terrain_tex: ImageTexture
@@ -200,6 +216,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if _panning:
 			_camera.position -= event.relative / _camera.zoom
+			_refresh_ui()
 		if _path_unit != null:
 			var p := _tile_of(event.position)
 			if _path.is_empty() or _path[_path.size() - 1].distance_to(p) >= PATH_SPACING:
@@ -227,6 +244,9 @@ func _on_key(event: InputEventKey) -> void:
 			show_all = not show_all
 		KEY_O:
 			show_orders = not show_orders
+		KEY_V:
+			show_vision = not show_vision
+			_refresh_ui()
 		KEY_TAB:
 			_select_next(-1 if event.shift_pressed else 1)
 		KEY_A:
@@ -679,9 +699,11 @@ func _draw() -> void:
 	for u in battle.units:
 		if u.is_alive() and u.side == PLAYER_SIDE:
 			_draw_unseen(u)
-	for u in selected:
-		if u.is_alive() and is_shown(u):
-			_draw_ranges(u)
+	if show_vision:
+		_draw_vision()
+	# 여럿을 고르면 원이 겹쳐 읽을 수 없으므로 하나를 골랐을 때만 그린다.
+	if selected.size() == 1 and selected[0].is_alive() and is_shown(selected[0]):
+		_draw_ranges(selected[0])
 	if show_orders:
 		for u in battle.units:
 			if u.is_alive() and u.side == PLAYER_SIDE and not selected.has(u):
@@ -698,6 +720,8 @@ func _draw() -> void:
 	if _drag_start != null:
 		var r := Rect2(_px(_drag_start), Vector2.ZERO).expand(_px(_mouse_tile()))
 		draw_rect(r, Color(1, 1, 1, 0.8), false, 1.5)
+	if _ctx != null:
+		_refresh_context()
 
 
 func _draw_unit(u: BattleUnit) -> void:
@@ -718,6 +742,7 @@ func _draw_unit(u: BattleUnit) -> void:
 	var c := _px(u.center)
 	draw_line(c, c + u.facing * TILE_PX * 1.2, Color.BLACK, 2.0)
 	UnitSymbol.draw(self, c, SYMBOL_PX, u.type.symbol_icon, u.type.symbol_echelon, u.side != PLAYER_SIDE, color, Color.WHITE if sel else Color.BLACK)
+	_draw_strength(u, c)
 	if u.side == PLAYER_SIDE or show_all:
 		if u.hold_reason == "pinned":
 			_draw_label(c + Vector2(SYMBOL_PX * 0.7, -SYMBOL_PX * 0.2), "고착", Color(1.0, 0.3, 0.2))
@@ -725,7 +750,7 @@ func _draw_unit(u: BattleUnit) -> void:
 			_draw_label(c + Vector2(SYMBOL_PX * 0.7, -SYMBOL_PX * 0.2), "제압", Color(1.0, 0.85, 0.2))
 	if u.state() != Morale.State.STEADY:
 		var badge := Color(1.0, 0.85, 0.2) if u.state() == Morale.State.SHAKEN else Color(1.0, 0.3, 0.2)
-		_draw_label(c + Vector2(-SYMBOL_PX * 0.6, SYMBOL_PX * 1.1), STATE_NAMES[u.state()], badge)
+		_draw_label(c + Vector2(-SYMBOL_PX * 0.6, SYMBOL_PX * 1.45), STATE_NAMES[u.state()], badge)
 
 
 ## 글자 뒤에 검은 테두리를 둘러 지형 위에서도 읽히게 한다.
@@ -769,6 +794,62 @@ func _draw_unseen(u: BattleUnit) -> void:
 
 
 ## 고른 아군의 명령: 찾은 길을 따라 이동 목표와 경유점까지 점선, 후퇴지, 포격 지점.
+## 기호 아래의 전력 막대. 전차·포는 한 대(문)에 한 칸, 보병은 남은 비율만큼 채운다.
+## 초록(2/3 넘게) → 노랑 → 빨강(1/3 아래). 아군은 남은 수도 숫자로 적는다.
+func _draw_strength(u: BattleUnit, c: Vector2) -> void:
+	var kind := strength_kind(u)
+	var alive := u.alive_count(kind)
+	var total := maxi(u.initial_count(kind), 1)
+	var frac := float(alive) / total
+	var color := Color(0.25, 0.85, 0.3) if frac > 0.66 else (Color(1.0, 0.8, 0.2) if frac > 0.33 else Color(1.0, 0.3, 0.2))
+	var w := SYMBOL_PX * 1.5
+	var h := 5.0
+	var o := c + Vector2(-w / 2.0, SYMBOL_PX * 0.62)
+	draw_rect(Rect2(o - Vector2(1, 1), Vector2(w + 2, h + 2)), Color(0, 0, 0, 0.85))
+	if total <= 6:
+		var pip := w / total
+		for i in total:
+			if i < alive:
+				draw_rect(Rect2(o + Vector2(i * pip + 0.5, 0), Vector2(pip - 1.0, h)), color)
+	else:
+		draw_rect(Rect2(o, Vector2(w * frac, h)), color)
+	if u.side == PLAYER_SIDE or show_all:
+		_draw_label(o + Vector2(w + 3, h + 3), str(alive), Color.WHITE, 11)
+
+
+## 전력으로 세는 것: 전차 부대는 전차, 나머지는 사람.
+static func strength_kind(u: BattleUnit) -> String:
+	return "vehicle" if u.type.is_vehicle() else "man"
+
+
+## 부대 하나만 골랐을 때 그 부대가 지금 볼 수 있는 칸들의 테두리 (노랑).
+## 숲·마을 칸은 더 가까워야 보이고, 숲·마을 너머는 가려진다.
+func _draw_vision() -> void:
+	if selected.size() != 1 or not selected[0].is_alive() or not is_shown(selected[0]):
+		return
+	var u := selected[0]
+	var key := "%s %s" % [u.id, u.center.round()]
+	if key != _vision_key:
+		_vision_key = key
+		_vision = battle.visible_tiles(u)
+	var color := Color(1.0, 0.9, 0.3, 0.8)
+	var top := Vector2i(0, battle.map.height)
+	for t in _vision:
+		var o := Vector2(t) * TILE_PX
+		if not _vision.has(t + Vector2i.UP):
+			draw_line(o, o + Vector2(TILE_PX, 0), color, 1.5)
+		if not _vision.has(t + Vector2i.DOWN):
+			draw_line(o + Vector2(0, TILE_PX), o + Vector2(TILE_PX, TILE_PX), color, 1.5)
+		if not _vision.has(t + Vector2i.LEFT):
+			draw_line(o, o + Vector2(0, TILE_PX), color, 1.5)
+		if not _vision.has(t + Vector2i.RIGHT):
+			draw_line(o + Vector2(TILE_PX, 0), o + Vector2(TILE_PX, TILE_PX), color, 1.5)
+		if t.x == roundi(u.center.x) and t.y < top.y:
+			top = t
+	if not _vision.is_empty():
+		_draw_label(Vector2(top) * TILE_PX + Vector2(-34, 16), "시야 %dm" % roundi(u.type.sight_tiles * BattleMap.TILE_METERS), color, 13)
+
+
 ## 고르지 않은 부대의 이동 명령을 흐리게 (곧은 선으로만).
 func _draw_orders_faint(u: BattleUnit) -> void:
 	if u.move_target == null:
@@ -949,6 +1030,9 @@ func _build_ui() -> void:
 	_multi_button.toggle_mode = true
 	_orders_button = _button(top, "명령 모두 보기", func(): show_orders = not show_orders; _refresh_ui(); queue_redraw())
 	_orders_button.toggle_mode = true
+	_vision_button = _button(top, "시야 보기", func(): show_vision = not show_vision; _refresh_ui(); queue_redraw())
+	_vision_button.toggle_mode = true
+	_build_context(layer)
 	_top_label = Label.new()
 	top.add_child(_top_label)
 
@@ -1000,6 +1084,189 @@ func _build_ui() -> void:
 	_button(line2, "예비대로", _to_reserve)
 	_button(line2, "완료", finish_draft)
 	_button(line2, "취소", func(): _set_mode(Mode.SELECT))
+
+
+# --- 부대 옆 명령 창 ---------------------------------------------------------
+# 고른 부대 바로 옆에 상태(전력·사기)와 자주 쓰는 명령을 띄운다. 오른쪽 칸은 그대로 둔다.
+
+func _build_context(layer: CanvasLayer) -> void:
+	_ctx = PanelContainer.new()
+	_ctx.visible = false
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.1, 0.11, 0.13, 0.96)
+	style.border_color = Color(1, 1, 1, 0.5)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(7)
+	_ctx.add_theme_stylebox_override("panel", style)
+	layer.add_child(_ctx)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+	_ctx.add_child(box)
+	_ctx_title = Label.new()
+	_ctx_title.add_theme_font_size_override("font_size", 14)
+	box.add_child(_ctx_title)
+	var bars := GridContainer.new()
+	bars.columns = 3
+	bars.add_theme_constant_override("h_separation", 6)
+	box.add_child(bars)
+	_ctx_strength = _ctx_bar(bars, "전력")
+	_ctx_strength_label = _ctx_small(bars)
+	_ctx_morale = _ctx_bar(bars, "사기")
+	_ctx_morale_label = _ctx_small(bars)
+	_ctx_note = Label.new()
+	_ctx_note.add_theme_font_size_override("font_size", 12)
+	_ctx_note.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	box.add_child(_ctx_note)
+	var stance := HBoxContainer.new()
+	box.add_child(stance)
+	for i in STANCE_NAMES.size():
+		var sb := _ctx_button(stance, STANCE_NAMES[i], func(): Orders.set_stance(battle, _own_selected(), i as BattleUnit.Stance); _refresh_ui())
+		sb.toggle_mode = true
+		_ctx_stances.append(sb)
+	var order := HBoxContainer.new()
+	box.add_child(order)
+	_ctx_button(order, "이동", func(): _set_mode(Mode.MOVE))
+	_ctx_button(order, "후진", func(): _set_mode(Mode.REVERSE))
+	_ctx_button(order, "방향", func(): _set_mode(Mode.FACE))
+	_ctx_button(order, "정지", func(): _each(func(u): Orders.stop(u)))
+	var order2 := HBoxContainer.new()
+	box.add_child(order2)
+	_ctx_button(order2, "대형 배치", func(): _set_mode(Mode.FORMATION))
+	_ctx_button(order2, "후퇴지", func(): _set_mode(Mode.RETREAT_POINT))
+	_ctx_button(order2, "예비대로", _to_reserve)
+	var fire := HBoxContainer.new()
+	box.add_child(fire)
+	_ctx_button(fire, "포격 지점", func(): _set_mode(Mode.FIRE_POINT))
+	_ctx_button(fire, "예측", func(): _set_mode(Mode.FIRE_PREDICT))
+	_ctx_button(fire, "해제", func(): _each(func(u): Orders.clear_fire(u)))
+	_ctx_fire = fire
+	_ctx_rows = [stance, order, order2, fire]
+
+
+func _ctx_bar(parent: Control, title: String) -> ProgressBar:
+	var label := Label.new()
+	label.text = title
+	label.add_theme_font_size_override("font_size", 12)
+	parent.add_child(label)
+	var bar := ProgressBar.new()
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(110, 10)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.max_value = 1.0
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var back := StyleBoxFlat.new()
+	back.bg_color = Color(0, 0, 0, 0.7)
+	bar.add_theme_stylebox_override("background", back)
+	bar.add_theme_stylebox_override("fill", StyleBoxFlat.new())
+	parent.add_child(bar)
+	return bar
+
+
+func _ctx_small(parent: Control) -> Label:
+	var label := Label.new()
+	label.add_theme_font_size_override("font_size", 12)
+	parent.add_child(label)
+	return label
+
+
+func _ctx_button(parent: Control, text: String, action: Callable) -> Button:
+	var b := _button(parent, text, action)
+	b.custom_minimum_size = Vector2(0, 30)
+	b.add_theme_font_size_override("font_size", 13)
+	return b
+
+
+static func _level_color(frac: float) -> Color:
+	return Color(0.25, 0.85, 0.3) if frac > 0.66 else (Color(1.0, 0.8, 0.2) if frac > 0.33 else Color(1.0, 0.3, 0.2))
+
+
+func _refresh_context() -> void:
+	var units: Array[BattleUnit] = []
+	for u in selected:
+		if u.is_alive() and is_shown(u):
+			units.append(u)
+	# 지점을 찍는 중이거나 끄는 중에는 지도를 가리지 않게 숨긴다.
+	_ctx.visible = not units.is_empty() and mode == Mode.SELECT and _path_unit == null and _place_start == null and _drag_start == null
+	if not _ctx.visible:
+		return
+	var own := _own_selected()
+	var alive := 0
+	var total := 0
+	var morale := 0.0
+	for u in units:
+		alive += u.alive_count(strength_kind(u))
+		total += u.initial_count(strength_kind(u))
+		morale += u.morale
+	morale /= units.size()
+	var first := units[0]
+	_ctx_title.text = first.type.name if units.size() == 1 else "부대 %d개" % units.size()
+	if first.side != PLAYER_SIDE:
+		_ctx_title.text += " (적)"
+	var frac := float(alive) / maxi(total, 1)
+	_ctx_strength.value = frac
+	(_ctx_strength.get_theme_stylebox("fill") as StyleBoxFlat).bg_color = _level_color(frac)
+	_ctx_strength_label.text = "%d / %d" % [alive, total]
+	var known := own.size() == units.size() or show_all
+	_ctx_morale.value = morale / 100.0 if known else 0.0
+	(_ctx_morale.get_theme_stylebox("fill") as StyleBoxFlat).bg_color = _level_color(morale / 100.0)
+	_ctx_morale_label.text = ("%d %s" % [morale, STATE_NAMES[first.state()] if units.size() == 1 else ""]) if known else "모름"
+	var notes: Array[String] = []
+	if units.size() == 1 and known:
+		if first.hold_reason == "pinned":
+			notes.append("고착")
+		elif first.is_suppressed():
+			notes.append("제압됨")
+		if HOLD_REASONS.has(first.hold_reason) and first.hold_reason != "pinned":
+			notes.append(HOLD_REASONS[first.hold_reason].split(" (")[0])
+		if first.type.setup_ticks > 0 and not first.deployed:
+			notes.append("전개 중 %d초" % first.setup_left)
+	_ctx_note.text = ", ".join(notes)
+	_ctx_note.visible = not notes.is_empty()
+	var can_order := _can_order()
+	for row in _ctx_rows:
+		row.visible = can_order
+	_ctx_fire.visible = can_order and own.any(func(u): return _has_indirect(u))
+	if can_order:
+		for i in _ctx_stances.size():
+			_ctx_stances[i].set_pressed_no_signal(own.all(func(u): return u.stance == i))
+	_ctx.reset_size()
+	_place_context(units)
+
+
+## 고른 부대들의 오른쪽 아래에 둔다. 화면 밖이나 오른쪽 칸 위로 나가면 반대쪽으로 넘긴다.
+func _place_context(units: Array[BattleUnit]) -> void:
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	var to_screen := get_canvas_transform()
+	for u in units:
+		for t in u.tiles():
+			var p: Vector2 = to_screen * _px(Vector2(t))
+			lo = lo.min(p)
+			hi = hi.max(p)
+	var view := get_viewport_rect().size - Vector2(300, 0)
+	var size := _ctx.size
+	var low := Vector2(4, 50)
+	var high := (view - size).max(low)
+	# 네 귀퉁이 가운데 다른 부대를 가장 덜 가리는 자리를 고른다 (같으면 오른쪽 아래 먼저).
+	var gap := 28.0
+	var spots := [
+		Vector2(hi.x + gap, hi.y + gap), Vector2(hi.x + gap, lo.y - gap - size.y),
+		Vector2(lo.x - gap - size.x, hi.y + gap), Vector2(lo.x - gap - size.x, lo.y - gap - size.y),
+	]
+	var best := low
+	var best_cost := INF
+	for i in spots.size():
+		var pos: Vector2 = (spots[i] as Vector2).clamp(low, high)
+		var rect := Rect2(pos, size).grow(12)
+		var cost := i * 0.1 + pos.distance_to(spots[i]) * 0.02
+		for o in battle.units:
+			if o.is_alive() and is_shown(o) and rect.has_point(to_screen * _px(o.center)):
+				cost += 3.0 if units.has(o) else 1.0
+		if cost < best_cost:
+			best_cost = cost
+			best = pos
+	_ctx.position = best
 
 
 func _group(parent: Control, key: String, title: String) -> HBoxContainer:
@@ -1065,6 +1332,8 @@ func _refresh_ui() -> void:
 	_run_button.text = ("계속 ▶" if paused else "일시정지 ⏸") if running else "실행 ▶"
 	_multi_button.set_pressed_no_signal(multi_select)
 	_orders_button.set_pressed_no_signal(show_orders)
+	_vision_button.set_pressed_no_signal(show_vision)
+	_refresh_context()
 	var own := _own_selected()
 	var can_order := not running and battle.winner == "" and not own.is_empty()
 	for key in _groups:

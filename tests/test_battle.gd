@@ -369,3 +369,26 @@ func test_reachable_respects_terrain() -> void:
 	var reach := map.reachable(Vector2(20, 20), 6.0, true)
 	check(reach.has(Vector2i(26, 20)) and not reach.has(Vector2i(27, 20)), "개활지는 이동량만큼")
 	check(reach.has(Vector2i(20, 17)) and not reach.has(Vector2i(20, 16)), "숲은 전차가 느리게 들어간다")
+
+
+func test_firing_unit_in_forest_is_exposed() -> void:
+	var b := _battle()
+	b.map.fill_rect(Rect2i(0, 8, 40, 4), "forest")
+	var hidden := b.add_unit(BattleUnit.new("h", "blue", _duelist(), Vector2(10, 11), Vector2.DOWN))
+	var watcher := b.add_unit(BattleUnit.new("w", "red", _crowd(5), Vector2(12, 30), Vector2.UP))
+	b.add_unit(BattleUnit.new("bait", "red", _crowd(5), Vector2(10, 14), Vector2.UP))
+	b.step()
+	check(not b.can_see(watcher, hidden), "숲 속에 가만히 있는 적은 멀리서 안 보인다")
+	for i in 8:
+		b.step()
+	check(hidden.last_target == "bait", "숲 속 부대가 가까운 적을 쏜다")
+	check(b.can_see(watcher, hidden), "쏘고 나면 표적이 아닌 부대에게도 보인다")
+
+
+func test_visible_tiles_respect_concealment_and_los() -> void:
+	var b := _battle()
+	b.map.fill_rect(Rect2i(0, 10, 40, 4), "forest")
+	var u := b.add_unit(BattleUnit.new("u", "red", _crowd(5), Vector2(20, 20), Vector2.UP))
+	var seen := b.visible_tiles(u)
+	check(seen.has(Vector2i(20, 15)), "개활지는 보인다")
+	check(not seen.has(Vector2i(20, 6)), "숲 너머는 안 보인다")

@@ -16,6 +16,8 @@ const CONTEST_TILES := 2
 ## 쏜 부대는 이 틱 동안 맞은 쪽에 위치가 드러난다 (총구 화염·소리). 포의 사격 간격보다 길어서
 ## 계속 쏘는 동안에는 계속 보인다.
 const MUZZLE_REVEAL_TICKS := 6
+## 직사한 부대는 이만큼(틱) 동안 숨지 못한다: 숲·마을 안이라도 개활지에 선 것처럼 보인다.
+const FIRE_EXPOSE_TICKS := 10
 ## 발견 후 첫 사격까지 걸리는 시간 (틱).
 const REACTION_MIN := 2
 const REACTION_MAX := 3
@@ -400,9 +402,32 @@ func _sees(u: BattleUnit, e: BattleUnit) -> bool:
 	var e_tile := e.nearest_tile_to(u.center)
 	var u_tile := u.nearest_tile_to(Vector2(e_tile))
 	var d := Vector2(u_tile).distance_to(Vector2(e_tile))
-	if d > u.type.sight_tiles * map.props(e_tile)["conceal"]:
+	var conceal: float = 1.0 if is_exposed_by_fire(e) else map.props(e_tile)["conceal"]
+	if d > u.type.sight_tiles * conceal:
 		return false
 	return not map.line_blocked(u_tile, e_tile)
+
+
+## 방금 직사해서 총구 화염과 소리로 자리가 드러난 부대인가.
+func is_exposed_by_fire(e: BattleUnit) -> bool:
+	return e.last_fire_point == null and tick - e.last_fire_tick <= FIRE_EXPOSE_TICKS
+
+
+## 부대가 지금 자리에서 볼 수 있는 칸들 (화면 표시용). 숨기 좋은 칸은 더 가까이 가야 보인다.
+func visible_tiles(u: BattleUnit) -> Dictionary:
+	var out := {}
+	var from := Vector2i(u.center.round())
+	var r := int(ceil(u.type.sight_tiles))
+	for y in range(from.y - r, from.y + r + 1):
+		for x in range(from.x - r, from.x + r + 1):
+			var t := Vector2i(x, y)
+			if not map.in_bounds(t):
+				continue
+			if Vector2(t).distance_to(Vector2(from)) > u.type.sight_tiles * map.props(t)["conceal"]:
+				continue
+			if not map.line_blocked(from, t):
+				out[t] = true
+	return out
 
 
 ## 나를 방금 직사한 적은 숨어 있어도 시선이 트여 있으면 위치가 드러난다.
