@@ -392,3 +392,23 @@ func test_visible_tiles_respect_concealment_and_los() -> void:
 	var seen := b.visible_tiles(u)
 	check(seen.has(Vector2i(20, 15)), "개활지는 보인다")
 	check(not seen.has(Vector2i(20, 6)), "숲 너머는 안 보인다")
+
+
+func test_tank_point_fire_shells_a_spot_in_sight() -> void:
+	var types := UnitType.load_all()
+	var b := _battle()
+	var tank := b.add_unit(BattleUnit.new("t", "red", types["medium_tank_platoon"], Vector2(20, 30), Vector2.UP))
+	var hidden := b.add_unit(BattleUnit.new("h", "blue", _crowd(20), Vector2(20, 8), Vector2.DOWN))
+	b.map.fill_rect(Rect2i(15, 6, 10, 3), "forest")
+	Orders.fire_at_point(tank, Vector2(20, 8))
+	for i in 40:
+		b.step()
+	check(not b.side_knows("red", hidden), "숲 속 적은 여전히 보이지 않는다")
+	check(tank.last_fire_point != null and hidden.turn_log.get("shelled", 0) > 0, "전차가 지점에 고폭탄을 쏜다")
+	check(hidden.suppression > 0.0 or hidden.alive_count() < 20, "맞은 쪽이 제압되거나 피해를 입는다")
+	var behind := b.add_unit(BattleUnit.new("t2", "red", types["medium_tank_platoon"], Vector2(20, 36), Vector2.UP))
+	b.map.fill_rect(Rect2i(10, 32, 20, 3), "forest")
+	Orders.fire_at_point(behind, Vector2(20, 8))
+	for i in 20:
+		b.step()
+	check(behind.last_fire_point == null, "숲에 가려 시선이 닿지 않으면 쏘지 못한다")

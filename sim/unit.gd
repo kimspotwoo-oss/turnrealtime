@@ -70,6 +70,8 @@ var fire_order := {}
 ## 마지막으로 쏜 목표 (화면 표시용): 부대 id, 간접 사격 지점, 쏜 틱.
 var last_target := ""
 var last_fire_point = null
+## 마지막 사격이 직사포의 지점 사격이었는가 (곡사와 달리 쏜 자리가 드러난다).
+var last_fire_direct := false
 var last_fire_tick := -1000
 ## 보이지 않는 적에게 맞았을 때 그 적이 있던 곳과 틱 (화면에는 방향만 보여 준다).
 var unseen_from = null

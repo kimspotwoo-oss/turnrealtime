@@ -21,6 +21,8 @@ var soft_accuracy: float
 var indirect: bool
 var close_at: bool
 var blast_tiles: int
+## 직사포의 지점 사격(고폭탄)에 쓰는 탄. 없으면 지점 사격을 못 한다.
+var area: WeaponType = null
 var shell_speed_tiles: float
 var scatter_ratio: float
 var scatter_max_tiles: float
@@ -53,6 +55,15 @@ static func from_dict(d: Dictionary) -> WeaponType:
 	w.scatter_ratio = float(sc.get("ratio", 0.0))
 	w.scatter_max_tiles = float(sc.get("max_m", 0.0)) / BattleMap.TILE_METERS
 	w.scatter_angle_deg = float(sc.get("angle_deg", 0.0))
+	if d.has("area_fire"):
+		var a: Dictionary = (d["area_fire"] as Dictionary).duplicate()
+		a["id"] = w.id + "_he"
+		a["name"] = w.name + " 고폭탄"
+		a["range_m"] = d["range_m"]
+		a["interval_s"] = d.get("interval_s", 1)
+		a["count"] = w.count
+		a["scale"] = w.scale
+		w.area = from_dict(a)
 	return w
 
 

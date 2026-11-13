@@ -435,7 +435,7 @@ func _sees(u: BattleUnit, e: BattleUnit) -> bool:
 
 ## 방금 직사해서 총구 화염과 소리로 자리가 드러난 부대인가.
 func is_exposed_by_fire(e: BattleUnit) -> bool:
-	return e.last_fire_point == null and tick - e.last_fire_tick <= FIRE_EXPOSE_TICKS
+	return (e.last_fire_point == null or e.last_fire_direct) and tick - e.last_fire_tick <= FIRE_EXPOSE_TICKS
 
 
 ## 부대가 지금 자리에서 볼 수 있는 칸들 (화면 표시용). 숨기 좋은 칸은 더 가까이 가야 보인다.
@@ -554,6 +554,9 @@ func _fire(hits: Array[Dictionary]) -> void:
 			elif not melee:
 				# 근접전 중인 병력은 밖으로 쏘지 못한다.
 				fired = _fire_direct(u, w, n, hits)
+				# 쏠 적이 없을 때만 명령받은 지점에 고폭탄을 쏜다.
+				if not fired and w.area != null and u.fire_order.get("mode", "") == "point":
+					fired = _fire_area(u, w, n)
 			if fired:
 				var interval := w.interval_ticks * u.crew_slowdown(w)
 				if u.is_suppressed():
@@ -664,6 +667,27 @@ func _pick_element(target: BattleUnit, w: WeaponType) -> int:
 	return -1
 
 
+## 직사포의 지점 사격: 시선이 닿는 지점에 고폭탄을 쏜다. 숨어 있을 법한 자리를 제압할 때 쓴다.
+func _fire_area(u: BattleUnit, w: WeaponType, n: int) -> bool:
+	var aim: Vector2 = u.fire_order["point"]
+	if u.center.distance_to(aim) > w.range_tiles:
+		return false
+	if map.line_blocked(Vector2i(u.center.round()), Vector2i(aim.round())):
+		return false
+	if friendly_near(u.side, aim, w.area.blast_tiles + FRIENDLY_FIRE_MARGIN):
+		return false
+	var mult := Combat.SCATTER_MOVING if u.moved_this_tick else 1.0
+	for i in n:
+		var p := Combat.scatter_point(rng, u.center, aim, w.area, mult)
+		var flight := maxi(1, ceili(u.center.distance_to(p) / w.area.shell_speed_tiles))
+		shells.append({"land_tick": tick + flight, "point": p, "weapon": w.area, "attacker": u})
+	u.last_target = ""
+	u.last_fire_point = aim
+	u.last_fire_direct = true
+	u.last_fire_tick = tick
+	return true
+
+
 func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 	var aim = null
 	var aimed: BattleUnit = null
@@ -693,6 +717,7 @@ func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 		var flight := maxi(1, ceili(u.center.distance_to(p) / w.shell_speed_tiles))
 		shells.append({"land_tick": tick + flight, "point": p, "weapon": w, "attacker": u})
 	u.last_target = u.fire_order.get("target", "") if u.fire_order.get("mode", "") == "predict" else (aimed.id if aimed != null else "")
+	u.last_fire_direct = false
 	u.last_fire_point = aim
 	u.last_fire_tick = tick
 	return true

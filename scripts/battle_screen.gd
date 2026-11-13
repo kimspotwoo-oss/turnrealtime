@@ -58,7 +58,7 @@ const MODE_HINTS := {
 	Mode.FORMATION: "세울 자리를 끌어서 그으세요.\n선 길이가 폭이고, 왼쪽에서 오른쪽으로 그으면 위쪽이 정면입니다.",
 	Mode.FACE: "바라볼 곳을 누르세요. 이동 중이면 도착한 뒤에 그쪽을 봅니다.",
 	Mode.RETREAT_POINT: "후퇴지를 누르세요.",
-	Mode.FIRE_POINT: "포격할 지점을 누르세요.",
+	Mode.FIRE_POINT: "포격할 지점을 누르세요. 전차와 대전차포는 시선이 닿는 지점만, 쏠 적이 없을 때 쏩니다.",
 	Mode.FIRE_PREDICT: "예측 사격할 적 부대를 누르세요.",
 	Mode.DRAW_LINE: "전선을 이루는 점들을 차례로 누르고, 오른쪽 클릭이나 Enter로 마치세요.",
 	Mode.DRAW_OFFENSIVE: "공세선 점들을 누르고, 오른쪽 클릭이나 Enter로 마치세요.",
@@ -553,7 +553,7 @@ func click_at(p: Vector2, add := false) -> void:
 			_set_mode(Mode.SELECT)
 		Mode.FIRE_POINT:
 			for u in _own_selected():
-				if _has_indirect(u):
+				if _can_point_fire(u):
 					Orders.fire_at_point(u, p)
 			_set_mode(Mode.SELECT)
 		Mode.FIRE_PREDICT:
@@ -645,6 +645,14 @@ func _own_selected() -> Array[BattleUnit]:
 		if u.side == PLAYER_SIDE and u.is_alive():
 			out.append(u)
 	return out
+
+
+## 지점 사격을 할 수 있는가: 곡사 무기이거나 고폭탄이 있는 직사포.
+static func _can_point_fire(u: BattleUnit) -> bool:
+	for w in u.type.weapons:
+		if w.indirect or w.area != null:
+			return true
+	return false
 
 
 static func _has_indirect(u: BattleUnit) -> bool:
@@ -1231,7 +1239,7 @@ func _refresh_context() -> void:
 	var can_order := _can_order()
 	for row in _ctx_rows:
 		row.visible = can_order
-	_ctx_fire.visible = can_order and own.any(func(u): return _has_indirect(u))
+	_ctx_fire.visible = can_order and own.any(func(u): return _can_point_fire(u))
 	if can_order:
 		for i in _ctx_stances.size():
 			_ctx_stances[i].set_pressed_no_signal(own.all(func(u): return u.stance == i))
@@ -1345,7 +1353,7 @@ func _refresh_ui() -> void:
 		for child in _groups[key].get_children():
 			if child is Button:
 				child.disabled = not can_order
-	if can_order and not own.any(func(u): return _has_indirect(u)):
+	if can_order and not own.any(func(u): return _can_point_fire(u)):
 		for child in _groups["fire"].get_children():
 			if child is Button:
 				child.disabled = true
