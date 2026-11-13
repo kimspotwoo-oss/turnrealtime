@@ -95,3 +95,21 @@ func test_reverse_move_keeps_facing() -> void:
 		b.step()
 	check(u.center.y > start.y, "뒤로 물러난다")
 	check(u.facing.is_equal_approx(Vector2.UP), "정면은 그대로")
+
+
+func test_attack_order_closes_to_max_range_and_stops() -> void:
+	var b := _battle()
+	var u := b.add_unit(BattleUnit.new("x", "player", types["infantry_platoon"], Vector2(30, 26)))
+	var foe := b.unit_by_id("e")
+	u.stance = BattleUnit.Stance.HOLD
+	b.step()
+	Orders.attack(u, foe)
+	var start := b.distance_between(u, foe)
+	for i in 400:
+		b.step()
+	var d := b.distance_between(u, foe)
+	var reach := 300.0 / BattleMap.TILE_METERS
+	check(start > reach and d <= reach and d > reach * 0.7, "최대 사거리 근처에서 멈춘다: %.1f → %.1f (사거리 %.1f)" % [start, d, reach])
+	check(u.focus_target == "e", "그 적을 먼저 쏜다")
+	Orders.move(u, Vector2(10, 33))
+	check(not u.attack_move, "이동 명령을 내리면 공격 명령은 끝난다")

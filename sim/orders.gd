@@ -8,6 +8,7 @@ static func move(u: BattleUnit, target: Vector2) -> void:
 	u.waypoints.clear()
 	u.arrive_facing = null
 	u.reverse_move = false
+	u.attack_move = false
 	u.individual = true
 
 
@@ -38,6 +39,15 @@ static func place_on_segment(units: Array[BattleUnit], a: Vector2, b: Vector2, w
 		set_formation(u, u.formation, width)
 
 
+## 공격 명령 (토탈워 방식): 가장 빠른 길로 다가가 최대 사거리에서 멈추고 이 적을 먼저 쏜다.
+## 표적이 물러나면 다시 따라가고, 표적이 죽으면 명령이 끝난다.
+static func attack(u: BattleUnit, target: BattleUnit) -> void:
+	stop(u)
+	u.focus_target = target.id
+	u.attack_move = true
+	u.attack_last_seen = target.center.round()
+
+
 ## 우선 사격: 이 적이 보이고 사거리 안이면 다른 표적보다 먼저 쏜다.
 static func focus(u: BattleUnit, target: BattleUnit) -> void:
 	u.focus_target = target.id
@@ -45,6 +55,7 @@ static func focus(u: BattleUnit, target: BattleUnit) -> void:
 
 static func clear_focus(u: BattleUnit) -> void:
 	u.focus_target = ""
+	u.attack_move = false
 
 
 ## 경유점: 지금 이동 목표(와 앞선 경유점)를 지난 뒤 이어서 간다. 이동 명령이 없으면 그냥 이동.
@@ -69,6 +80,7 @@ static func stop(u: BattleUnit) -> void:
 	u.waypoints.clear()
 	u.reverse_move = false
 	u.focus_target = ""
+	u.attack_move = false
 	u.individual = true
 
 

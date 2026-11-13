@@ -36,6 +36,10 @@ var move_target = null
 var reverse_move := false
 ## 먼저 쏠 적 부대 id (직사). 보이고 사거리 안이면 다른 표적보다 먼저 쏜다.
 var focus_target := ""
+## 공격 명령: focus_target 이 최대 사거리 안에 보일 때까지 가장 빠른 길로 다가간다.
+var attack_move := false
+## 공격 명령의 표적을 마지막으로 본 자리. 표적을 놓치면 여기까지 간다.
+var attack_last_seen = null
 ## 이동 목표 다음에 차례로 갈 경유점.
 var waypoints: Array[Vector2] = []
 ## 지금 따라가는 길 (map.find_path 결과)과 그 길의 끝.

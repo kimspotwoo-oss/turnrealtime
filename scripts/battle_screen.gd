@@ -52,7 +52,7 @@ const PATH_SPACING := 1.0
 enum Mode { SELECT, MOVE, REVERSE, FORMATION, FACE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DRAW_OFFENSIVE, DRAW_RETREAT_LINE }
 
 const MODE_HINTS := {
-	Mode.SELECT: "오른쪽 클릭: 이동 (Shift 경유점)\n적에 오른쪽 클릭: 우선 사격\n오른쪽 끌기: 대형 배치\n부대에서 끌기: 경로 그리기",
+	Mode.SELECT: "오른쪽 클릭: 이동 (Shift 경유점)\n적에 오른쪽 클릭: 다가가서 공격\n오른쪽 끌기: 대형 배치\n부대에서 끌기: 경로 그리기",
 	Mode.MOVE: "이동할 곳을 누르세요. Shift+클릭으로 경유점을 이어 찍을 수 있어요.",
 	Mode.REVERSE: "후진할 곳을 누르세요. 지금 정면을 유지한 채 절반 속도로 물러납니다.",
 	Mode.FORMATION: "세울 자리를 끌어서 그으세요.\n선 길이가 폭이고, 왼쪽에서 오른쪽으로 그으면 위쪽이 정면입니다.",
@@ -445,9 +445,12 @@ func command_at(p: Vector2, add := false, reverse := false) -> void:
 	var t := unit_at(p)
 	if t != null and t.side != PLAYER_SIDE:
 		for u in _own_selected():
-			Orders.focus(u, t)
 			if _has_indirect(u):
+				# 박격포는 다가가지 않고 그 자리에서 예측 사격한다.
+				Orders.focus(u, t)
 				Orders.fire_predicted(u, t)
+			else:
+				Orders.attack(u, t)
 	else:
 		_move_group(p, add, reverse)
 	_refresh_ui()
@@ -1221,6 +1224,8 @@ func _refresh_context() -> void:
 			notes.append(HOLD_REASONS[first.hold_reason].split(" (")[0])
 		if first.type.setup_ticks > 0 and not first.deployed:
 			notes.append("전개 중 %d초" % first.setup_left)
+		if first.attack_move:
+			notes.append("공격 명령: 사거리까지 접근")
 	_ctx_note.text = ", ".join(notes)
 	_ctx_note.visible = not notes.is_empty()
 	var can_order := _can_order()

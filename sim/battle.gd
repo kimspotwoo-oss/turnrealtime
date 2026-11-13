@@ -46,6 +46,8 @@ const SPOTTED_ACCURACY := 0.5
 const SIDESTEP_COS := 0.7
 ## 후진할 때 속도 배수.
 const REVERSE_SPEED := 0.5
+## 공격 명령으로 다가갈 때 최대 사거리의 이만큼 안에 들어가면 멈춘다 (표적이 조금 물러나도 닿게).
+const ATTACK_RANGE_FRACTION := 0.95
 ## 전차가 막히면 이 각도들로 비켜 간다 (도).
 const DETOUR_ANGLES := [0.0, 45.0, -45.0, 90.0, -90.0]
 
@@ -205,6 +207,9 @@ func _move() -> void:
 			retreating = true
 		elif u.engage_point != null:
 			target = u.engage_point
+		if u.attack_move and st < Morale.State.PANIC and u.move_target == null:
+			# 공격 명령은 다른 교전보다 앞선다: 사거리 안에 보이면 서서 쏘고, 아니면 다가간다.
+			target = _chase_point(u)
 		if target == null:
 			_settle(u)
 			continue
@@ -268,6 +273,26 @@ func _move() -> void:
 		if u.type.setup_ticks > 0:
 			u.deployed = false
 			u.setup_left = u.type.setup_ticks
+
+
+## 공격 명령을 받은 부대가 향할 곳. 표적이 최대 사거리 안에 보이면 null (서서 쏜다).
+## 표적이 죽으면 명령이 끝난다.
+func _chase_point(u: BattleUnit) -> Variant:
+	var foe := unit_by_id(u.focus_target)
+	if foe == null or not foe.is_alive():
+		u.attack_move = false
+		u.focus_target = ""
+		return null
+	if not side_knows(u.side, foe):
+		# 놓쳤으면 마지막으로 본 자리까지 가서 기다린다.
+		if u.attack_last_seen != null and u.center.distance_to(u.attack_last_seen) > 0.5:
+			return u.attack_last_seen
+		return null
+	u.attack_last_seen = foe.center.round()
+	if distance_between(u, foe) <= _engage_range(u) * ATTACK_RANGE_FRACTION and can_see(u, foe):
+		return null
+	# 칸 단위로 맞춰서, 표적이 조금 움직일 때마다 길을 다시 찾지 않게 한다.
+	return foe.center.round()
 
 
 ## 목표까지 가는 길에서 지금 향할 점. 목표가 바뀌면 길을 새로 찾는다.
