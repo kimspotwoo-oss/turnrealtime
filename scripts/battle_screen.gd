@@ -60,9 +60,9 @@ const MODE_HINTS := {
 	Mode.RETREAT_POINT: "후퇴지를 누르세요.",
 	Mode.FIRE_POINT: "포격할 지점을 누르세요. 전차와 대전차포는 시선이 닿는 지점만, 쏠 적이 없을 때 쏩니다.",
 	Mode.FIRE_PREDICT: "예측 사격할 적 부대를 누르세요.",
-	Mode.DRAW_LINE: "전선을 이루는 점들을 차례로 누르고, 오른쪽 클릭이나 Enter로 마치세요.",
-	Mode.DRAW_OFFENSIVE: "공세선 점들을 누르고, 오른쪽 클릭이나 Enter로 마치세요.",
-	Mode.DRAW_RETREAT_LINE: "후퇴선 점들을 누르고, 오른쪽 클릭이나 Enter로 마치세요.",
+	Mode.DRAW_LINE: "전선을 끌어서 한 번에 그으세요.\n또는 점들을 차례로 누르고 오른쪽 클릭이나 Enter로 마치세요.",
+	Mode.DRAW_OFFENSIVE: "공세선을 끌어서 그으세요.\n또는 점들을 누르고 오른쪽 클릭이나 Enter로 마치세요.",
+	Mode.DRAW_RETREAT_LINE: "후퇴선을 끌어서 그으세요.\n또는 점들을 누르고 오른쪽 클릭이나 Enter로 마치세요.",
 }
 
 var battle: Battle
@@ -92,6 +92,17 @@ var _place_start = null
 ## 경로를 그리는 중인 부대와 지금까지의 점.
 var _path_unit: BattleUnit = null
 var _path := PackedVector2Array()
+## 전선·공세선·후퇴선을 끌어서 긋는 중.
+var _free_draw := false
+## 전선 한 번 전진·후퇴 단추가 옮기는 거리 (칸).
+const LINE_STEP := 5.0
+## 전선을 눌러 고를 때 선에서 이만큼(칸) 안이면 누른 것으로 본다.
+const LINE_PICK := 0.8
+var _ctx_line: Control
+var _ctx_line_label: Label
+var _ctx_leave: Button
+var _ctx_rejoin: Button
+var _line_buttons: Array[Button] = []
 var _touches := {}
 var _touch_used := false
 var _last_click_unit: BattleUnit = null
@@ -217,7 +228,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _panning:
 			_camera.position -= event.relative / _camera.zoom
 			_refresh_ui()
-		if _path_unit != null:
+		if _path_unit != null or _free_draw:
 			var p := _tile_of(event.position)
 			if _path.is_empty() or _path[_path.size() - 1].distance_to(p) >= PATH_SPACING:
 				_path.append(p)
@@ -383,6 +394,10 @@ func _on_left_press(p: Vector2, event: InputEventMouseButton) -> void:
 	if mode == Mode.FORMATION:
 		_place_start = p
 		return
+	if mode in [Mode.DRAW_LINE, Mode.DRAW_OFFENSIVE, Mode.DRAW_RETREAT_LINE] and draft.is_empty():
+		_free_draw = true
+		_path.clear()
+		return
 	if mode != Mode.SELECT:
 		return
 	var u := unit_at(p)
@@ -409,6 +424,17 @@ func _on_left_release(p: Vector2, event: InputEventMouseButton) -> void:
 			place_formation(start, p, add)
 			_set_mode(Mode.SELECT)
 		return
+	if _free_draw:
+		_free_draw = false
+		var drawn := _path.duplicate()
+		_path.clear()
+		if not short:
+			drawn.append(p)
+			draft = PackedVector2Array([start])
+			drawn.insert(0, start)
+			draft.append_array(simplify_path(drawn, 0.7))
+			finish_draft()
+			return
 	if mode != Mode.SELECT:
 		click_at(p, add)
 		return
@@ -507,6 +533,47 @@ static func simplify_path(points: PackedVector2Array, tolerance := 1.0) -> Packe
 	return out
 
 
+## p 가까이를 지나는 아군 전선 (전선 자체나 공세선).
+func line_at(p: Vector2) -> FrontLine:
+	var best: FrontLine = null
+	var best_d := LINE_PICK
+	for line in battle.front_lines:
+		if line.side != PLAYER_SIDE:
+			continue
+		for pts in [line.points, line.offensive]:
+			for i in range(1, pts.size()):
+				var d: float = Geometry2D.get_closest_point_to_segment(p, pts[i - 1], pts[i]).distance_to(p)
+				if d < best_d:
+					best_d = d
+					best = line
+	return best
+
+
+## 전선을 누르면 그 전선에 선 부대를 모두 고른다.
+func select_line(line: FrontLine, add := false) -> void:
+	if not add:
+		selected.clear()
+	for id in line.units:
+		var u := battle.unit_by_id(id)
+		if u != null and u.is_alive() and not selected.has(u):
+			selected.append(u)
+	_refresh_ui()
+	queue_redraw()
+
+
+## 고른 부대가 모두 한 전선에 서 있으면 그 전선.
+func selected_line() -> FrontLine:
+	return Orders.common_line(battle, _own_selected())
+
+
+func _line_order(f: Callable) -> void:
+	var line := selected_line()
+	if line != null and _can_order():
+		f.call(line)
+	_refresh_ui()
+	queue_redraw()
+
+
 func select_same_type(u: BattleUnit) -> void:
 	selected.clear()
 	for o in battle.units:
@@ -527,6 +594,11 @@ func click_at(p: Vector2, add := false) -> void:
 	match mode:
 		Mode.SELECT:
 			var u := unit_at(p)
+			if u == null:
+				var picked := line_at(p)
+				if picked != null:
+					select_line(picked, add)
+					return
 			if not add:
 				selected.clear()
 			if u != null and not selected.has(u):
@@ -696,9 +768,14 @@ func _draw() -> void:
 		if not _line_in_use(line):
 			# 부대가 모두 개별 명령으로 떠난 전선은 흐리게.
 			color.a = 0.3
+		var picked := line.side == PLAYER_SIDE and line == selected_line()
+		if picked:
+			_draw_line_points(line.points, Color.WHITE, 7.0)
 		_draw_line_points(line.points, color, 3.0)
-		_draw_line_points(line.offensive, color.lightened(0.4), 2.0, true)
+		_draw_line_points(line.offensive, color.lightened(0.4), 3.0 if picked else 2.0, true)
 		_draw_line_points(line.retreat, color.darkened(0.3), 2.0, true)
+		if line.side == PLAYER_SIDE:
+			_draw_line_info(line, color, picked)
 	if not running:
 		_draw_reach()
 	for u in battle.units:
@@ -861,6 +938,32 @@ func _draw_vision() -> void:
 		_draw_label(Vector2(top) * TILE_PX + Vector2(-34, 16), "시야 %dm" % roundi(u.type.sight_tiles * BattleMap.TILE_METERS), color, 13)
 
 
+## 전선 이름표와, 공세선이 있으면 전선에서 공세선으로 가는 화살표.
+func _draw_line_info(line: FrontLine, color: Color, picked: bool) -> void:
+	if line.points.size() < 2:
+		return
+	var text := "전선 · %s · %d부대" % [STANCE_NAMES[line.stance], line.units.size()]
+	if not line.reserves.is_empty():
+		text += " · 예비 %d" % line.reserves.size()
+	if not line.offensive.is_empty():
+		text += " · 전진 중"
+	# 부대 기호와 전력 막대를 가리지 않게 선 아래에 적는다.
+	var at := _px(line.points[0]) + Vector2(-6, 36)
+	_draw_label(at, text, Color.WHITE if picked else color.lightened(0.6), 13)
+	if line.offensive.is_empty():
+		return
+	var arrow := Color(1, 1, 1, 0.8 if picked else 0.45)
+	for f in [0.1, 0.5, 0.9]:
+		var a := _px(FrontLine.point_at(line.points, f))
+		var b := _px(FrontLine.point_at(line.offensive, f))
+		if a.distance_to(b) < 12.0:
+			continue
+		var dir := (b - a).normalized()
+		draw_line(a, b, arrow, 2.0)
+		draw_line(b, b - dir.rotated(0.5) * 9.0, arrow, 2.0)
+		draw_line(b, b - dir.rotated(-0.5) * 9.0, arrow, 2.0)
+
+
 ## 고르지 않은 부대의 이동 명령을 흐리게 (곧은 선으로만).
 func _draw_orders_faint(u: BattleUnit) -> void:
 	if u.move_target == null:
@@ -920,6 +1023,11 @@ func _draw_drags() -> void:
 			draw_circle(_px(slot), 4.0, Color.WHITE)
 			draw_line(_px(slot), _px(slot + front * 1.5), Color.WHITE, 2.0)
 		_draw_label(_px(m) + Vector2(8, -8), "폭 %d칸" % roundi(a.distance_to(m) / maxi(n, 1)), Color.WHITE)
+	if _free_draw and _press_tile != null and not _path.is_empty():
+		var free := PackedVector2Array([_press_tile])
+		free.append_array(_path)
+		free.append(m)
+		_draw_line_points(free, Color.WHITE, 2.0)
 	if _path_unit != null and not _path.is_empty():
 		var pts := PackedVector2Array([_path_unit.center])
 		pts.append_array(_path)
@@ -1063,6 +1171,9 @@ func _build_ui() -> void:
 	_report_label = Label.new()
 	_report_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_report_label.add_theme_font_size_override("font_size", 13)
+	# 보고가 길어도 아래 단추가 화면 밖으로 밀리지 않게 한다.
+	_report_label.max_lines_visible = 8
+	_report_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	box.add_child(_report_label)
 
 	var stance := _group(box, "stance", "태세")
@@ -1092,7 +1203,14 @@ func _build_ui() -> void:
 	_button(line, "공세선", func(): _set_mode(Mode.DRAW_OFFENSIVE))
 	_button(line, "후퇴선", func(): _set_mode(Mode.DRAW_RETREAT_LINE))
 	var line2 := _group(box, "line2", "")
-	_button(line2, "예비대로", _to_reserve)
+	_line_buttons.append(_button(line2, "전진 +5", func(): _line_order(func(l): Orders.advance_line(battle, l, LINE_STEP))))
+	_line_buttons.append(_button(line2, "후퇴 −5", func(): _line_order(func(l): Orders.advance_line(battle, l, -LINE_STEP))))
+	_line_buttons.append(_button(line2, "전진 취소", func(): _line_order(func(l): Orders.cancel_advance(battle, l))))
+	var line3 := _group(box, "line3", "")
+	_button(line3, "예비대로", _to_reserve)
+	_button(line3, "전선에서 빼기", func(): Orders.leave_line(battle, _own_selected()); _refresh_ui(); queue_redraw())
+	_button(line3, "전선 복귀", func(): Orders.rejoin_line(battle, _own_selected()); _refresh_ui(); queue_redraw())
+	line2 = _group(box, "line4", "")
 	_button(line2, "완료", finish_draft)
 	_button(line2, "취소", func(): _set_mode(Mode.SELECT))
 
@@ -1152,7 +1270,26 @@ func _build_context(layer: CanvasLayer) -> void:
 	_ctx_button(fire, "예측", func(): _set_mode(Mode.FIRE_PREDICT))
 	_ctx_button(fire, "해제", func(): _each(func(u): Orders.clear_fire(u)))
 	_ctx_fire = fire
-	_ctx_rows = [stance, order, order2, fire]
+	var lbox := VBoxContainer.new()
+	lbox.add_theme_constant_override("separation", 3)
+	box.add_child(lbox)
+	_ctx_line_label = Label.new()
+	_ctx_line_label.add_theme_font_size_override("font_size", 12)
+	_ctx_line_label.add_theme_color_override("font_color", Color(0.6, 0.8, 1.0))
+	lbox.add_child(_ctx_line_label)
+	var lrow := HBoxContainer.new()
+	lbox.add_child(lrow)
+	_line_buttons.append(_ctx_button(lrow, "전진 +5", func(): _line_order(func(l): Orders.advance_line(battle, l, LINE_STEP))))
+	_line_buttons.append(_ctx_button(lrow, "후퇴 −5", func(): _line_order(func(l): Orders.advance_line(battle, l, -LINE_STEP))))
+	_line_buttons.append(_ctx_button(lrow, "공세선", func(): _set_mode(Mode.DRAW_OFFENSIVE)))
+	_line_buttons.append(_ctx_button(lrow, "취소", func(): _line_order(func(l): Orders.cancel_advance(battle, l))))
+	var lrow2 := HBoxContainer.new()
+	lbox.add_child(lrow2)
+	_ctx_button(lrow2, "전선 긋기", func(): _set_mode(Mode.DRAW_LINE))
+	_ctx_leave = _ctx_button(lrow2, "전선에서 빼기", func(): Orders.leave_line(battle, _own_selected()); _refresh_ui(); queue_redraw())
+	_ctx_rejoin = _ctx_button(lrow2, "복귀", func(): Orders.rejoin_line(battle, _own_selected()); _refresh_ui(); queue_redraw())
+	_ctx_line = lbox
+	_ctx_rows = [stance, order, order2, fire, lbox]
 
 
 func _ctx_bar(parent: Control, title: String) -> ProgressBar:
@@ -1240,6 +1377,14 @@ func _refresh_context() -> void:
 	for row in _ctx_rows:
 		row.visible = can_order
 	_ctx_fire.visible = can_order and own.any(func(u): return _can_point_fire(u))
+	if can_order:
+		var line := selected_line()
+		var in_line := own.any(func(u): return Orders.line_of(battle, u.id) != null)
+		_ctx_line_label.text = "전선 전체 명령" if line != null else ("전선 소속 (개별 선택)" if in_line else "전선 없음")
+		for b in _line_buttons:
+			b.disabled = line == null
+		_ctx_leave.disabled = not in_line
+		_ctx_rejoin.disabled = not own.any(func(u): return u.individual and Orders.line_of(battle, u.id) != null)
 	if can_order:
 		for i in _ctx_stances.size():
 			_ctx_stances[i].set_pressed_no_signal(own.all(func(u): return u.stance == i))

@@ -164,8 +164,45 @@ static func draw_front_line(b: Battle, side: String, units: Array[BattleUnit], p
 
 
 static func set_offensive(b: Battle, line: FrontLine, points: PackedVector2Array) -> void:
-	line.offensive = points
-	line.apply(b)
+	line.set_offensive(b, points)
+
+
+## 전선 전체를 적 쪽으로 tiles 칸 전진 (음수면 뒤로 물림). 모양은 그대로 유지한다.
+static func advance_line(b: Battle, line: FrontLine, tiles: float) -> void:
+	line.set_offensive(b, line.shifted(b, tiles))
+
+
+## 전진 취소: 공세선을 지우고 원래 전선 자리로 돌아간다.
+static func cancel_advance(b: Battle, line: FrontLine) -> void:
+	line.set_offensive(b, PackedVector2Array())
+
+
+## 전선에서 빼기: 전선과 예비대 목록에서 빼고 그 자리에 세운다.
+static func leave_line(b: Battle, units: Array[BattleUnit]) -> void:
+	var ids: Array[String] = []
+	for u in units:
+		ids.append(u.id)
+	_detach(b, ids)
+	for line in b.front_lines:
+		line.apply(b)
+	for u in units:
+		stop(u)
+
+
+## 전선 복귀: 개별 명령을 버리고 전선의 제자리로 돌아간다.
+static func rejoin_line(b: Battle, units: Array[BattleUnit]) -> void:
+	for u in units:
+		var line := line_of(b, u.id)
+		if line == null:
+			continue
+		u.individual = false
+		u.attack_move = false
+		u.focus_target = ""
+		if line.reserves.has(u.id):
+			u.move_target = null
+			u.waypoints.clear()
+	for line in b.front_lines:
+		line.apply(b)
 
 
 static func set_retreat_line(b: Battle, line: FrontLine, points: PackedVector2Array) -> void:

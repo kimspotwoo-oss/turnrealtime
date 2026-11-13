@@ -116,3 +116,29 @@ func test_broken_line_does_not_jump_to_offensive() -> void:
 	var line := b.front_line("main")
 	check(not line.offensive.is_empty(), "모두 무너져도 공세선을 새 전선으로 삼지 않는다")
 	check_near(line.points[0].y, 18.0, "전선은 제자리")
+
+
+func test_advance_line_moves_units_and_reserves_follow() -> void:
+	var b: Battle = StageLoader.load_file("res://data/stages/practice.json")
+	var line := b.front_line("player_main")
+	Orders.cancel_advance(b, line)
+	var tank := b.unit_by_id("p_tank1")
+	Orders.add_reserves(b, line, [tank] as Array[BattleUnit])
+	var start := tank.center
+	Orders.advance_line(b, line, 5.0)
+	check_near(line.offensive[0].y, line.points[0].y - 5.0, "적 쪽으로 다섯 칸")
+	check(tank.move_target is Vector2 and is_equal_approx((tank.move_target as Vector2).y, start.y - 5.0), "예비대도 같은 만큼 따라간다")
+	Orders.cancel_advance(b, line)
+	check(line.offensive.is_empty() and tank.move_target == null, "전진을 취소하면 예비대도 선다")
+
+
+func test_leave_and_rejoin_line() -> void:
+	var b: Battle = StageLoader.load_file("res://data/stages/practice.json")
+	var line := b.front_line("player_main")
+	var u := b.unit_by_id("p_inf2")
+	Orders.move(u, Vector2(30, 30))
+	Orders.rejoin_line(b, [u] as Array[BattleUnit])
+	check(not u.individual and not (u.move_target as Vector2).is_equal_approx(Vector2(30, 30)), "복귀하면 전선 자리로 간다")
+	Orders.leave_line(b, [u] as Array[BattleUnit])
+	check(not line.units.has("p_inf2") and u.move_target == null, "빼면 전선 목록에서 빠지고 그 자리에 선다")
+	check(line.units.size() == 5, "남은 부대가 전선을 다시 나눠 선다")
