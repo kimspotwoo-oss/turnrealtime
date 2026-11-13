@@ -23,6 +23,8 @@ var morale := 100.0
 var suppression := 0.0
 var shock_level := 0
 var shock_ticks := 0
+## 마지막으로 충격을 받은 틱. 같은 일로 충격이 거듭 걸리지 않게 한다.
+var last_shock_tick := -1000
 var last_attacked_tick := -1000
 ## 최근 손실 기록: [틱, 잃은 수]
 var recent_losses: Array[Vector2i] = []
@@ -30,12 +32,32 @@ var recent_losses: Array[Vector2i] = []
 var stance := Stance.HOLD
 ## 이동 목표 (칸 좌표) 또는 null.
 var move_target = null
+## 후진: 지금 정면을 유지한 채 이동한다 (느리다). 도착하거나 새 이동 명령을 받으면 풀린다.
+var reverse_move := false
+## 먼저 쏠 적 부대 id (직사). 보이고 사거리 안이면 다른 표적보다 먼저 쏜다.
+var focus_target := ""
+## 공격 명령: focus_target 이 최대 사거리 안에 보일 때까지 가장 빠른 길로 다가간다.
+var attack_move := false
+## 공격 명령의 표적을 마지막으로 본 자리. 표적을 놓치면 여기까지 간다.
+var attack_last_seen = null
+## 이동 목표 다음에 차례로 갈 경유점.
+var waypoints: Array[Vector2] = []
+## 지금 따라가는 길 (map.find_path 결과)과 그 길의 끝.
+var path := PackedVector2Array()
+var path_goal = null
+## 도착하면 바라볼 방향 (전선 자리처럼 정해진 경우) 또는 null. 가는 동안은 가는 쪽을 본다.
+var arrive_facing = null
 var retreat_point: Vector2
 var moved_this_tick := false
 ## 플레이어가 따로 내린 명령. 전선 명령보다 우선한다.
 var individual := false
-## 공세선에서 앞서 나가 나머지를 기다리는 중.
+## 공세선에서 앞서 나가 나머지를 기다리는 중. 전선이 틱마다 다시 정한다.
 var pace_hold := false
+## 교전 때문에 이번 틱에 갈 곳 (공격 태세는 적, 저지 태세는 제자리) 또는 null.
+## 명령(move_target)은 그대로 두므로 교전이 끝나면 원래 명령을 이어 간다.
+var engage_point = null
+## 움직이지 못한 까닭 (화면 표시용): "", "panic", "pace", "pinned", "melee", "blocked", "engaged".
+var hold_reason := ""
 var deployed := true
 var setup_left := 0
 
@@ -45,6 +67,19 @@ var cooldowns := {}
 var reaction := {}
 ## 간접 사격 명령: {} (자동), {"mode": "point", "point": Vector2}, {"mode": "predict", "target": String}
 var fire_order := {}
+## 마지막으로 쏜 목표 (화면 표시용): 부대 id, 간접 사격 지점, 쏜 틱.
+var last_target := ""
+var last_fire_point = null
+## 마지막 사격이 직사포의 지점 사격이었는가 (곡사와 달리 쏜 자리가 드러난다).
+var last_fire_direct := false
+var last_fire_tick := -1000
+## 보이지 않는 적에게 맞았을 때 그 적이 있던 곳과 틱 (화면에는 방향만 보여 준다).
+var unseen_from = null
+var unseen_tick := -1000
+## 이번 턴 기록 (턴 보고용). begin_turn 에서 비운다.
+## {"state": 시작 사기 상태, "alive": 시작 병력, "lost": 잃은 수, "shelled": 가까이 떨어진 포탄 수,
+##  "unseen": 보이지 않는 적에게 맞은 수, "shock": 충격 횟수}
+var turn_log := {}
 
 ## 지난 턴의 초당 이동 (예측 사격용).
 var velocity := Vector2.ZERO
@@ -132,8 +167,10 @@ func weapon_count(w: WeaponType) -> int:
 	if total == 0:
 		return 0
 	var n := ceili(w.count * float(alive_count(w.scale)) / total)
-	if w.scale == "gun" and alive_count("man") == 0:
-		return 0
+	if w.scale == "gun":
+		# 포 한 문을 다루는 데 처음 인원 비율만큼 사람이 든다. 남은 사람만큼만 쏜다.
+		var crew_per_gun := float(initial_count("man")) / total
+		n = mini(n, ceili(alive_count("man") / crew_per_gun)) if crew_per_gun > 0.0 else n
 	return n
 
 

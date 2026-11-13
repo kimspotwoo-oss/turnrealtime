@@ -5,12 +5,27 @@ extends RefCounted
 ## 화면과 상관없는 순수 계산이라 테스트에서 그대로 돌릴 수 있다. 랜덤은 모두 rng 하나를
 ## 거치므로 같은 시드와 같은 명령이면 항상 같은 결과가 나온다.
 
+## 전개한 포 진지는 낮게 엎드려 있어서 직사로 맞히기 어렵다.
+const GUN_PROFILE := 0.5
+## 최대 사거리에서 주는 제압의 비율 (가까이서는 1).
+const FAR_SUPPRESSION := 0.3
+## 저지 태세가 멈춰 서는 거리 (교전 거리 대비). 멀리 보이는 적 때문에 행군이 서지 않게 한다.
+const HOLD_STOP_FRACTION := 0.6
+## 이 거리(칸) 안에 싸울 수 있는 적이 있으면 점령 구역을 차지한 것으로 치지 않는다.
+const CONTEST_TILES := 2
+## 쏜 부대는 이 틱 동안 맞은 쪽에 위치가 드러난다 (총구 화염·소리). 포의 사격 간격보다 길어서
+## 계속 쏘는 동안에는 계속 보인다.
+const MUZZLE_REVEAL_TICKS := 6
+## 직사한 부대는 이만큼(틱) 동안 숨지 못한다: 숲·마을 안이라도 개활지에 선 것처럼 보인다.
+const FIRE_EXPOSE_TICKS := 10
 ## 발견 후 첫 사격까지 걸리는 시간 (틱).
 const REACTION_MIN := 2
 const REACTION_MAX := 3
 ## 공격 태세 부대가 멈춰 서는 거리 (교전 거리 대비). 보병은 끝까지 붙어 근접전에 들어간다.
 const ATTACK_CLOSE_FRACTION := 0.3
 const MOVING_ACCURACY := 0.5
+## 움직이는 표적을 쏠 때 명중률 배수.
+const MOVING_TARGET_ACCURACY := 0.6
 ## 제압돼 엎드린 보병은 맞을 확률이 절반.
 const PRONE_ACCURACY := 0.5
 ## 포탄 폭발: 떨어진 칸 인원이 맞을 확률. 폭발 반경 안의 다른 칸은 BLAST_EDGE_FACTOR 배.
@@ -25,12 +40,24 @@ const CLOSE_AT_CHANCE := 0.1
 ## 짧은 시간에 이만큼 잃으면 기습 충격.
 const LOSS_SHOCK_FRACTION := 0.1
 const LOSS_SHOCK_WINDOW := 5
+## 아군이 본 적을 자기는 못 보고 쏠 때 (견인포만) 명중률 배수.
+const SPOTTED_ACCURACY := 0.5
+## 자리를 옆으로 옮길 때는 정면을 유지한다: 이동 방향과 정해진 정면의 cos 이 이보다 작으면 옆걸음.
+const SIDESTEP_COS := 0.7
+## 후진할 때 속도 배수.
+const REVERSE_SPEED := 0.5
+## 공격 명령으로 다가갈 때 최대 사거리의 이만큼 안에 들어가면 멈춘다 (표적이 조금 물러나도 닿게).
+const ATTACK_RANGE_FRACTION := 0.95
+## 전차가 막히면 이 각도들로 비켜 간다 (도).
+const DETOUR_ANGLES := [0.0, 45.0, -45.0, 90.0, -90.0]
 
 var map: BattleMap
 var units: Array[BattleUnit] = []
 var rng := RandomNumberGenerator.new()
 var tick := 0
 var turn := 0
+## 이번 실행기간에서 지난 틱 수.
+var turn_tick := 0
 var turn_seconds := 60
 var turn_limit := 20
 ## 날아가는 포탄: {"land_tick": int, "point": Vector2, "weapon": WeaponType, "attacker": BattleUnit}
@@ -97,15 +124,29 @@ func front_line(id: String) -> FrontLine:
 func run_turn() -> void:
 	if winner != "":
 		return
+	begin_turn()
+	while not turn_over():
+		step()
+	end_turn()
+
+
+## 준비기간이 끝나고 실행기간을 시작한다. AI 는 여기서 이번 턴 명령을 정한다.
+## 화면은 begin_turn → step 반복 → end_turn 으로 실행기간을 천천히 보여 줄 수 있다.
+func begin_turn() -> void:
 	turn += 1
+	turn_tick = 0
 	for ai in ai_players:
 		ai.plan_turn(self)
 	for u in units:
 		u.turn_start_center = u.center
-	for i in turn_seconds:
-		step()
-		if winner != "":
-			break
+		u.turn_log = {"state": u.state(), "alive": u.alive_count(), "lost": 0, "shelled": 0, "unseen": 0, "shock": 0}
+
+
+func turn_over() -> bool:
+	return winner != "" or turn_tick >= turn_seconds
+
+
+func end_turn() -> void:
 	for u in units:
 		u.velocity = (u.center - u.turn_start_center) / turn_seconds
 	if winner == "" and turn >= turn_limit:
@@ -114,8 +155,11 @@ func run_turn() -> void:
 
 func step() -> void:
 	tick += 1
+	turn_tick += 1
 	# 1. 명령 도착: 1단계에는 통신 지연이 없어서 준비기간 명령이 그대로 유효하다.
 	#    전선은 공세선 보조와 예비대 투입만 한다.
+	for u in units:
+		u.pace_hold = false
 	for line in front_lines:
 		line.update(self)
 	_move()
@@ -147,6 +191,7 @@ func state_hash() -> int:
 func _move() -> void:
 	for u in units:
 		u.moved_this_tick = false
+		u.hold_reason = ""
 		if not u.is_alive():
 			continue
 		var st := u.state()
@@ -157,39 +202,124 @@ func _move() -> void:
 			retreating = true
 		elif st == Morale.State.PANIC:
 			target = null
+			u.hold_reason = "panic"
 		elif u.stance == BattleUnit.Stance.RETREAT and target == u.retreat_point:
 			retreating = true
-		if target == null or (u.pace_hold and not retreating):
+		elif u.engage_point != null:
+			target = u.engage_point
+		if u.attack_move and st < Morale.State.PANIC and u.move_target == null:
+			# 공격 명령은 다른 교전보다 앞선다: 사거리 안에 보이면 서서 쏘고, 아니면 다가간다.
+			target = _chase_point(u)
+		if target == null:
+			_settle(u)
+			continue
+		if u.pace_hold and not retreating:
+			u.hold_reason = "pace"
 			_settle(u)
 			continue
 		var to: Vector2 = target - u.center
 		if to.length() < 0.01:
-			if target == u.move_target:
-				u.move_target = null
+			if target == u.engage_point:
+				if u.move_target != null:
+					u.hold_reason = "engaged"
+			elif target == u.move_target:
+				if not u.waypoints.is_empty():
+					u.move_target = u.waypoints.pop_front()
+				else:
+					u.move_target = null
+					u.reverse_move = false
+					if u.arrive_facing != null:
+						u.facing = u.arrive_facing
 			_settle(u)
 			continue
+		var remaining := to.length()
+		if target != u.engage_point:
+			# 교전 중 적에게 다가갈 때만 곧장 가고, 나머지는 지형을 보고 길을 찾는다.
+			to = _path_point(u, target) - u.center
 		if u.is_pinned() and not retreating:
+			u.hold_reason = "pinned"
 			_settle(u)
 			continue
 		# 근접전 중인 부대는 다른 적 칸으로 전진하지 못하고 물러나기만 한다.
 		var melee_foe = _melee_enemy_center(u)
 		if melee_foe != null and to.dot(_toward(u, melee_foe)) > 0.0:
+			u.hold_reason = "melee"
 			_settle(u)
 			continue
 		var speed := _speed(u) / 60.0
 		if u.is_suppressed():
 			speed *= 0.5
-		var dir := to.normalized()
-		var next_center := u.center + dir * minf(speed, to.length())
-		if _vehicle_blocked(u, next_center, dir):
+		var reversing: bool = u.reverse_move and u.move_target != null and target == u.move_target
+		if reversing:
+			speed *= REVERSE_SPEED
+		var step_len := minf(speed, to.length())
+		var moved := false
+		for angle in DETOUR_ANGLES:
+			var dir := to.normalized().rotated(deg_to_rad(angle))
+			# 비켜 갈 때는 대형을 돌리지 않고 옆걸음한다. 돌리면 옆 부대와 더 겹친다.
+			var facing := _move_facing(u, dir, remaining, retreating) if angle == 0.0 and not reversing else u.facing
+			var next_center := u.center + dir * step_len
+			if _vehicle_blocked(u, next_center, facing):
+				continue
+			u.center = next_center
+			u.facing = facing
+			moved = true
+			break
+		if not moved:
+			u.hold_reason = "blocked"
 			_settle(u)
 			continue
-		u.center = next_center
-		u.facing = dir
 		u.moved_this_tick = true
 		if u.type.setup_ticks > 0:
 			u.deployed = false
 			u.setup_left = u.type.setup_ticks
+
+
+## 공격 명령을 받은 부대가 향할 곳. 표적이 최대 사거리 안에 보이면 null (서서 쏜다).
+## 표적이 죽으면 명령이 끝난다.
+func _chase_point(u: BattleUnit) -> Variant:
+	var foe := unit_by_id(u.focus_target)
+	if foe == null or not foe.is_alive():
+		u.attack_move = false
+		u.focus_target = ""
+		return null
+	if not side_knows(u.side, foe):
+		# 놓쳤으면 마지막으로 본 자리까지 가서 기다린다.
+		if u.attack_last_seen != null and u.center.distance_to(u.attack_last_seen) > 0.5:
+			return u.attack_last_seen
+		return null
+	u.attack_last_seen = foe.center.round()
+	if distance_between(u, foe) <= _engage_range(u) * ATTACK_RANGE_FRACTION and can_see(u, foe):
+		return null
+	# 칸 단위로 맞춰서, 표적이 조금 움직일 때마다 길을 다시 찾지 않게 한다.
+	return foe.center.round()
+
+
+## 목표까지 가는 길에서 지금 향할 점. 목표가 바뀌면 길을 새로 찾는다.
+func _path_point(u: BattleUnit, goal: Vector2) -> Vector2:
+	if u.path_goal == null or not (u.path_goal as Vector2).is_equal_approx(goal) or u.path.is_empty():
+		u.path = map.find_path(u.center, goal, u.type.is_vehicle(), road_factor(u))
+		u.path_goal = goal
+	while u.path.size() > 1 and u.center.distance_to(u.path[0]) < 0.25:
+		u.path.remove_at(0)
+	return u.path[0]
+
+
+static func road_factor(u: BattleUnit) -> float:
+	if u.type.is_vehicle() and u.type.speed.has("road"):
+		return float(u.type.speed["road"]) / float(u.type.speed["vehicle"])
+	return 1.0
+
+
+## 움직이는 동안 바라볼 방향. 보통은 가는 쪽을 보지만, 정해진 정면(전선 자리)이 있으면
+## 옆으로 비키거나 자리를 조금 고칠 때는 정면을 유지한다.
+func _move_facing(u: BattleUnit, dir: Vector2, remaining: float, retreating: bool) -> Vector2:
+	if u.arrive_facing == null or retreating:
+		return dir
+	var front: Vector2 = u.arrive_facing
+	if remaining <= 1.0 or absf(dir.dot(front)) < SIDESTEP_COS:
+		return front
+	return dir
 
 
 ## 적 쪽 방향. 중심이 겹치면 부대가 바라보는 쪽을 적 쪽으로 본다.
@@ -216,18 +346,28 @@ func _speed(u: BattleUnit) -> float:
 	return float(u.type.speed["foot"]) * p["move_foot"]
 
 
-## 전차끼리는 같은 칸에 들어갈 수 없다.
-func _vehicle_blocked(u: BattleUnit, next_center: Vector2, dir: Vector2) -> bool:
+## 전차끼리는 같은 칸에 들어갈 수 없다. 이미 겹쳐 있으면 겹침이 늘어나는 움직임만 막아서,
+## 붙어 선 두 소대가 서로를 영영 묶지 않게 한다.
+func _vehicle_blocked(u: BattleUnit, next_center: Vector2, facing: Vector2) -> bool:
 	if not u.type.is_vehicle():
 		return false
-	var next_tiles := Formation.world_tiles(next_center, dir, u.offsets)
+	var now_tiles := u.tiles()
+	var next_tiles := Formation.world_tiles(next_center, facing, u.offsets)
 	for o in units:
 		if o == u or not o.type.is_vehicle() or not o.is_alive():
 			continue
-		for t in o.tiles():
-			if next_tiles.has(t):
-				return true
+		var o_tiles := o.tiles()
+		if _overlap(next_tiles, o_tiles) > _overlap(now_tiles, o_tiles):
+			return true
 	return false
+
+
+static func _overlap(a: Array[Vector2i], b: Array[Vector2i]) -> int:
+	var n := 0
+	for t in a:
+		if b.has(t):
+			n += 1
+	return n
 
 
 func _rebuild_occupancy() -> void:
@@ -241,10 +381,13 @@ func _rebuild_occupancy() -> void:
 			_occupancy[t].append(u)
 
 
+## 근접전은 보병끼리만 붙잡는다. 전차는 보병 사이를 지나갈 수 있고, 패주하는 적은 붙잡지 못한다.
 func _melee_enemy_center(u: BattleUnit) -> Variant:
+	if u.type.is_vehicle():
+		return null
 	for t in u.tiles():
 		for o in _occupancy.get(t, []):
-			if o.side != u.side:
+			if o.side != u.side and not o.type.is_vehicle() and o.state() != Morale.State.ROUTED:
 				return o.center
 	return null
 
@@ -261,7 +404,7 @@ func _update_vision() -> void:
 		var seen := {}
 		if u.is_alive():
 			for e in units:
-				if e.side != u.side and _sees(u, e):
+				if e.side != u.side and (_sees(u, e) or _revealed_by_fire(u, e)):
 					seen[e.id] = true
 		var extra: int = Morale.EXTRA_REACTION[u.state()]
 		for eid in seen:
@@ -284,9 +427,41 @@ func _sees(u: BattleUnit, e: BattleUnit) -> bool:
 	var e_tile := e.nearest_tile_to(u.center)
 	var u_tile := u.nearest_tile_to(Vector2(e_tile))
 	var d := Vector2(u_tile).distance_to(Vector2(e_tile))
-	if d > u.type.sight_tiles * map.props(e_tile)["conceal"]:
+	var conceal: float = 1.0 if is_exposed_by_fire(e) else map.props(e_tile)["conceal"]
+	if d > u.type.sight_tiles * conceal:
 		return false
 	return not map.line_blocked(u_tile, e_tile)
+
+
+## 방금 직사해서 총구 화염과 소리로 자리가 드러난 부대인가.
+func is_exposed_by_fire(e: BattleUnit) -> bool:
+	return (e.last_fire_point == null or e.last_fire_direct) and tick - e.last_fire_tick <= FIRE_EXPOSE_TICKS
+
+
+## 부대가 지금 자리에서 볼 수 있는 칸들 (화면 표시용). 숨기 좋은 칸은 더 가까이 가야 보인다.
+func visible_tiles(u: BattleUnit) -> Dictionary:
+	var out := {}
+	var from := Vector2i(u.center.round())
+	var r := int(ceil(u.type.sight_tiles))
+	for y in range(from.y - r, from.y + r + 1):
+		for x in range(from.x - r, from.x + r + 1):
+			var t := Vector2i(x, y)
+			if not map.in_bounds(t):
+				continue
+			if Vector2(t).distance_to(Vector2(from)) > u.type.sight_tiles * map.props(t)["conceal"]:
+				continue
+			if not map.line_blocked(from, t):
+				out[t] = true
+	return out
+
+
+## 나를 방금 직사한 적은 숨어 있어도 시선이 트여 있으면 위치가 드러난다.
+func _revealed_by_fire(u: BattleUnit, e: BattleUnit) -> bool:
+	if not e.is_alive() or e.last_target != u.id or e.last_fire_point != null:
+		return false
+	if tick - e.last_fire_tick > MUZZLE_REVEAL_TICKS:
+		return false
+	return not map.line_blocked(u.nearest_tile_to(e.center), e.nearest_tile_to(u.center))
 
 
 ## 두 부대에서 서로 가장 가까운 칸 사이의 거리 (칸).
@@ -298,8 +473,11 @@ func distance_between(a: BattleUnit, b: BattleUnit) -> float:
 
 # --- 4. 교전 판정과 반응 태세 -------------------------------------------------
 
+## 교전 중에는 engage_point 로 이번 틱의 움직임만 바꾸고, 내린 명령은 지우지 않는다.
+## 그래서 적이 사라지거나 패주하면 원래 명령을 이어 간다. 패주하는 적과는 교전하지 않는다.
 func _engage() -> void:
 	for u in units:
+		u.engage_point = null
 		if not u.is_alive() or u.state() >= Morale.State.PANIC:
 			continue
 		var foe := _nearest_visible(u)
@@ -311,14 +489,18 @@ func _engage() -> void:
 			continue
 		match u.stance:
 			BattleUnit.Stance.ATTACK:
-				# 공격: 적에게 바로 다가간다. 보병은 근접전까지 붙는다.
+				# 공격: 적에게 다가간다. 보병은 근접전까지 붙는다.
 				var stop := 0.0 if _closes_to_melee(u) else engage_range * ATTACK_CLOSE_FRACTION
-				u.move_target = foe.center if d > stop else null
+				u.engage_point = foe.center if d > stop else u.center
 			BattleUnit.Stance.RETREAT:
 				u.move_target = u.retreat_point
 			BattleUnit.Stance.HOLD:
-				# 저지: 1단계에서는 그 자리에 멈춰 막는다. 적 진로 앞으로 나가는 건 나중에.
-				u.move_target = null
+				# 저지: 적이 사거리 깊이 들어오면 그 자리에 멈춰 막는다. 적 진로 앞으로 나가는 건 나중에.
+				if d > engage_range * HOLD_STOP_FRACTION:
+					continue
+				u.engage_point = u.center
+				if u.arrive_facing != null:
+					u.facing = u.arrive_facing
 			BattleUnit.Stance.IGNORE:
 				pass
 
@@ -328,6 +510,8 @@ func _nearest_visible(u: BattleUnit) -> BattleUnit:
 	var best_d := INF
 	for eid in _visible.get(u.id, {}):
 		var e := unit_by_id(eid)
+		if e.state() == Morale.State.ROUTED:
+			continue
 		var d := distance_between(u, e)
 		if d < best_d:
 			best_d = d
@@ -370,6 +554,9 @@ func _fire(hits: Array[Dictionary]) -> void:
 			elif not melee:
 				# 근접전 중인 병력은 밖으로 쏘지 못한다.
 				fired = _fire_direct(u, w, n, hits)
+				# 쏠 적이 없을 때만 명령받은 지점에 고폭탄을 쏜다.
+				if not fired and w.area != null and u.fire_order.get("mode", "") == "point":
+					fired = _fire_area(u, w, n)
 			if fired:
 				var interval := w.interval_ticks * u.crew_slowdown(w)
 				if u.is_suppressed():
@@ -385,9 +572,19 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 	var acc: float = w.accuracy_at(d) * Morale.ACCURACY[u.state()]
 	if u.moved_this_tick:
 		acc *= MOVING_ACCURACY
+	if target.moved_this_tick:
+		acc *= MOVING_TARGET_ACCURACY
+	if not can_see(u, target):
+		acc *= SPOTTED_ACCURACY
 	var unseen := not can_see(target, u)
 	var target_tiles := target.tiles()
-	hits.append(_hit(target, -1, 0.0, w.suppression * n, u, unseen))
+	var near := 1.0 - clampf(d / w.range_tiles, 0.0, 1.0)
+	hits.append(_hit(target, -1, 0.0, w.suppression * n * lerpf(FAR_SUPPRESSION, 1.0, near), u, unseen))
+	if target.type.setup_ticks > 0 and target.deployed:
+		acc *= GUN_PROFILE
+	u.last_target = target.id
+	u.last_fire_point = null
+	u.last_fire_tick = tick
 	for i in n:
 		var idx := _pick_element(target, w)
 		if idx < 0:
@@ -395,7 +592,7 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 		var e := target.elements[idx]
 		match e["kind"]:
 			"man":
-				var chance: float = acc * map.props(target.element_tile(idx, target_tiles))["cover"]
+				var chance: float = acc * w.soft_accuracy * map.props(target.element_tile(idx, target_tiles))["cover"]
 				if target.is_suppressed():
 					chance *= PRONE_ACCURACY
 				if rng.randf() < chance:
@@ -413,15 +610,26 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 	return true
 
 
+## 직사 표적. 대전차 무기는 전차를 먼저, 그다음 나를 쏘는 적, 가까운 적 순이다.
+## 패주·패닉한 적은 다른 표적이 없을 때만 쏜다. 대전차포 같은 견인포는 아군이 본 적도
+## 자기 자리에서 시선이 트여 있으면 쏠 수 있다 (명중률은 낮다).
 func _pick_direct_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 	var best: BattleUnit = null
 	var best_score := INF
-	for eid in _visible.get(u.id, {}):
-		if u.reaction.get(eid, 1) > 0:
-			continue
+	var candidates: Array = _visible.get(u.id, {}).keys()
+	if w.scale == "gun":
+		for eid in _side_known.get(u.side, {}):
+			if not candidates.has(eid):
+				candidates.append(eid)
+	for eid in candidates:
 		var e := unit_by_id(eid)
 		if not e.is_alive() or in_melee(e):
 			# 근접전 칸으로는 직사하지 않는다 (아군 오사 위험).
+			continue
+		if can_see(u, e):
+			if u.reaction.get(eid, 1) > 0:
+				continue
+		elif map.line_blocked(u.nearest_tile_to(e.center), e.nearest_tile_to(u.center)):
 			continue
 		var d := distance_between(u, e)
 		if d > w.range_tiles:
@@ -434,6 +642,15 @@ func _pick_direct_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 		var score := d
 		if armored and not w.is_small_arms():
 			score -= 1000.0
+		match e.state():
+			Morale.State.ROUTED:
+				score += 500.0
+			Morale.State.PANIC:
+				score += 100.0
+		if e.last_target == u.id and tick - e.last_fire_tick <= 5:
+			score -= 30.0
+		if eid == u.focus_target:
+			score -= 2000.0
 		if score < best_score:
 			best_score = score
 			best = e
@@ -450,8 +667,30 @@ func _pick_element(target: BattleUnit, w: WeaponType) -> int:
 	return -1
 
 
+## 직사포의 지점 사격: 시선이 닿는 지점에 고폭탄을 쏜다. 숨어 있을 법한 자리를 제압할 때 쓴다.
+func _fire_area(u: BattleUnit, w: WeaponType, n: int) -> bool:
+	var aim: Vector2 = u.fire_order["point"]
+	if u.center.distance_to(aim) > w.range_tiles:
+		return false
+	if map.line_blocked(Vector2i(u.center.round()), Vector2i(aim.round())):
+		return false
+	if friendly_near(u.side, aim, w.area.blast_tiles + FRIENDLY_FIRE_MARGIN):
+		return false
+	var mult := Combat.SCATTER_MOVING if u.moved_this_tick else 1.0
+	for i in n:
+		var p := Combat.scatter_point(rng, u.center, aim, w.area, mult)
+		var flight := maxi(1, ceili(u.center.distance_to(p) / w.area.shell_speed_tiles))
+		shells.append({"land_tick": tick + flight, "point": p, "weapon": w.area, "attacker": u})
+	u.last_target = ""
+	u.last_fire_point = aim
+	u.last_fire_direct = true
+	u.last_fire_tick = tick
+	return true
+
+
 func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 	var aim = null
+	var aimed: BattleUnit = null
 	var observed := true
 	match u.fire_order.get("mode", ""):
 		"point":
@@ -462,9 +701,9 @@ func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 			if t != null and t.is_alive() and side_knows(u.side, t):
 				aim = predict_aim(u, w, t)
 		_:
-			var t := _auto_indirect_target(u, w)
-			if t != null:
-				aim = t.center
+			aimed = _auto_indirect_target(u, w)
+			if aimed != null:
+				aim = aimed.center
 	if aim == null:
 		return false
 	var dist := u.center.distance_to(aim)
@@ -477,6 +716,10 @@ func _fire_indirect(u: BattleUnit, w: WeaponType, n: int) -> bool:
 		var p := Combat.scatter_point(rng, u.center, aim, w, mult)
 		var flight := maxi(1, ceili(u.center.distance_to(p) / w.shell_speed_tiles))
 		shells.append({"land_tick": tick + flight, "point": p, "weapon": w, "attacker": u})
+	u.last_target = u.fire_order.get("target", "") if u.fire_order.get("mode", "") == "predict" else (aimed.id if aimed != null else "")
+	u.last_fire_direct = false
+	u.last_fire_point = aim
+	u.last_fire_tick = tick
 	return true
 
 
@@ -543,7 +786,7 @@ func _melee_attack(a: BattleUnit, b: BattleUnit, tile: Vector2i, hits: Array[Dic
 			if w.close_at:
 				at_count += a.weapon_count(w)
 				for i in mini(at_count, attackers.size()):
-					if rng.randf() < CLOSE_AT_CHANCE:
+					if rng.randf() < CLOSE_AT_CHANCE * Morale.ACCURACY[a.state()]:
 						var targets := _indices_on_tile(b, b_tiles, tile, "vehicle")
 						if targets.is_empty():
 							break
@@ -596,8 +839,13 @@ func _explode(s: Dictionary, hits: Array[Dictionary]) -> void:
 			nearest = mini(nearest, _cheb(t, land))
 		if nearest > w.blast_tiles + 2:
 			continue
-		var supp := w.suppression if nearest <= w.blast_tiles else w.suppression * 0.5
-		hits.append(_hit(u, -1, 0.0, supp, s["attacker"], false, 1 if nearest <= 1 else 0))
+		# 전차 승무원은 장갑 안에 있어서 포탄 파편에 제압되거나 충격받지 않는다.
+		if not u.type.is_vehicle():
+			var supp := w.suppression if nearest <= w.blast_tiles else w.suppression * 0.5
+			hits.append(_hit(u, -1, 0.0, supp, s["attacker"], false, 1 if nearest <= 1 else 0))
+			u.turn_log["shelled"] = u.turn_log.get("shelled", 0) + 1
+		else:
+			hits.append(_hit(u, -1, 0.0, 0.0, s["attacker"], false))
 		for i in u.alive_indices():
 			var et := u.element_tile(i, unit_tiles)
 			var dist := Vector2(et).distance_to(Vector2(land))
@@ -639,21 +887,41 @@ func _apply(hits: Array[Dictionary]) -> void:
 				e["hp"] = maxf(0.0, e["hp"] - h["damage"])
 				if e["hp"] == 0.0:
 					losses[t] = losses.get(t, 0) + 1
-		t.suppression = minf(Morale.SUPPRESSION_MAX, t.suppression + h["suppression"])
+					if h["attacker"] != null:
+						var by: Dictionary = t.turn_log.get("by", {})
+						var who: String = h["attacker"].type.name if h["attacker"].side != t.side else "아군 포격"
+						by[who] = by.get(who, 0) + 1
+						t.turn_log["by"] = by
+		# 전차 승무원은 장갑 안에 있어서 제압되지 않는다.
+		if not t.type.is_vehicle():
+			t.suppression = minf(Morale.SUPPRESSION_MAX, t.suppression + h["suppression"])
 		if h["attacker"] != null:
 			t.last_attacked_tick = tick
-		if h["unseen"]:
+			if h["attacker"].side != t.side and not side_knows(t.side, h["attacker"]):
+				t.unseen_from = h["attacker"].center
+				t.unseen_tick = tick
+				if idx >= 0:
+					t.turn_log["unseen"] = t.turn_log.get("unseen", 0) + 1
+		# 보이지 않는 적의 사격: 보병은 빗나가도 놀라지만, 전차는 실제로 맞아야 놀란다.
+		if h["unseen"] and (idx >= 0 or not t.type.is_vehicle()):
 			_shock(t, 1)
 		if h["shock"] > 0:
 			_shock(t, h["shock"])
 	for t in losses:
 		t.morale = maxf(0.0, t.morale - Morale.LOSS_TO_MORALE * float(losses[t]) / t.initial_count())
 		t.recent_losses.append(Vector2i(tick, losses[t]))
+		t.turn_log["lost"] = t.turn_log.get("lost", 0) + losses[t]
 
 
+## 약한 충격은 한 번 걸리면 SHOCK_COOLDOWN 틱 동안 다시 걸리지 않는다. 계속되는 포격이나
+## 사격은 충격이 아니라 제압으로 누른다.
 func _shock(u: BattleUnit, level: int) -> void:
 	if u.shock_ticks > 0 and u.shock_level >= level:
 		return
+	if level == 1 and tick - u.last_shock_tick < Morale.SHOCK_COOLDOWN:
+		return
+	u.last_shock_tick = tick
+	u.turn_log["shock"] = u.turn_log.get("shock", 0) + 1
 	u.morale = maxf(0.0, u.morale - Morale.SHOCK_MORALE_LOSS[level])
 	u.shock_level = maxi(u.shock_level if u.shock_ticks > 0 else 0, level)
 	u.shock_ticks = Morale.shock_ticks(u.experience)
@@ -714,17 +982,18 @@ func _check_victory() -> void:
 			return
 
 
-## 그 진영의 싸울 수 있는 부대가 구역 안에 있고, 적은 없으면 점령.
+## 그 진영의 싸울 수 있는 부대가 구역 안에 있고, 구역과 그 둘레 CONTEST_TILES 칸 안에
+## 싸울 수 있는 적이 없으면 점령. 구역 바로 밖에 버티는 적도 점령을 막는다.
 func holds(side: String, rect: Rect2i) -> bool:
 	var mine := false
+	var around := rect.grow(CONTEST_TILES)
 	for u in units:
 		if not u.is_alive() or u.state() == Morale.State.ROUTED:
 			continue
 		for t in u.tiles():
-			if rect.has_point(t):
-				if u.side == side:
-					mine = true
-				else:
-					return false
+			if u.side == side and rect.has_point(t):
+				mine = true
 				break
+			if u.side != side and around.has_point(t):
+				return false
 	return mine

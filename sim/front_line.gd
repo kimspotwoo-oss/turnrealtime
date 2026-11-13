@@ -27,6 +27,8 @@ const PACE_SLACK := 0.08
 
 ## 부대 id → {"slot": float, "start": Vector2, "target": Vector2}
 var _slots := {}
+## 전진할 때 예비대가 따라갈 자리 (부대 id → 칸). 공세선을 정할 때 한 번 계산한다.
+var reserve_targets := {}
 
 
 func _init(p_id: String, p_side: String, p_points: PackedVector2Array, p_enemy_dir: Vector2) -> void:
@@ -54,11 +56,46 @@ func apply(battle: Battle) -> void:
 		if u.individual:
 			continue
 		u.facing = facing_at(points if offensive.is_empty() else offensive, f)
+		u.arrive_facing = u.facing
 		u.set_formation("line", roundi(width))
 		u.stance = stance
 		u.move_target = target
+		u.waypoints.clear()
 		if not retreat.is_empty():
 			u.retreat_point = point_at(retreat, f)
+	for rid in reserves:
+		var r := battle.unit_by_id(rid)
+		if r != null and r.is_alive() and not r.individual and reserve_targets.has(rid):
+			r.move_target = reserve_targets[rid]
+			r.waypoints.clear()
+
+
+## 공세선을 정한다 (빈 선이면 전진 취소). 예비대는 전선과의 거리를 유지하며 따라간다.
+func set_offensive(battle: Battle, line: PackedVector2Array) -> void:
+	for rid in reserve_targets:
+		var r := battle.unit_by_id(rid)
+		if r != null and reserves.has(rid) and not r.individual:
+			r.move_target = null
+	reserve_targets.clear()
+	offensive = line
+	if not offensive.is_empty():
+		var shift := point_at(offensive, 0.5) - point_at(points, 0.5)
+		for rid in reserves:
+			var r := battle.unit_by_id(rid)
+			if r != null and r.is_alive():
+				var to := r.center + shift
+				reserve_targets[rid] = Vector2(clampf(to.x, 0, battle.map.width - 1), clampf(to.y, 0, battle.map.height - 1))
+	apply(battle)
+
+
+## 지금 전선(또는 가고 있는 공세선)을 적 쪽으로 tiles 칸 옮긴 선. 음수면 뒤로.
+func shifted(battle: Battle, tiles: float) -> PackedVector2Array:
+	var base := points if offensive.is_empty() else offensive
+	var out := PackedVector2Array()
+	for p in base:
+		var q := p + enemy_dir * tiles
+		out.append(Vector2(clampf(q.x, 0, battle.map.width - 1), clampf(q.y, 0, battle.map.height - 1)))
+	return out
 
 
 ## 실행기간 매 틱: 공세선 보조와 예비대 투입.
@@ -71,7 +108,8 @@ func slot_of(unit_id: String) -> float:
 	return _slots.get(unit_id, {}).get("slot", -1.0)
 
 
-## 무너진(패닉·패주·전멸) 부대 자리에 가장 가까운 예비대를 보낸다.
+## 무너진(패닉·패주·전멸) 부대 자리에 가장 가까운 예비대를 보낸다. 무너진 부대는
+## 예비대로 돌아가서, 회복하면 다시 구멍을 메울 수 있다.
 func _fill_gaps(battle: Battle) -> void:
 	for i in units.size():
 		var u := battle.unit_by_id(units[i])
@@ -85,6 +123,10 @@ func _fill_gaps(battle: Battle) -> void:
 			continue
 		reserves.erase(r.id)
 		_slots.erase(units[i])
+		if u != null and u.is_alive():
+			u.move_target = null
+			u.waypoints.clear()
+			reserves.append(u.id)
 		units[i] = r.id
 		send_to_slot(r, slot["slot"], slot["target"])
 
@@ -110,14 +152,17 @@ func send_to_slot(r: BattleUnit, f: float, target: Vector2) -> void:
 	_slots[r.id] = {"slot": f, "start": r.center, "target": target}
 	r.individual = false
 	r.facing = facing_at(points, f)
+	r.arrive_facing = r.facing
 	r.stance = stance
 	r.move_target = target
+	r.waypoints.clear()
 	if not retreat.is_empty():
 		r.retreat_point = point_at(retreat, f)
 
 
 ## 공세선: 앞서 나간 부대는 뒤처진 부대를 기다려 나란히 전진한다.
-## 적과 교전 중인 부대는 기다리지 않는다.
+## 적과 교전 중인 부대는 기다리지 않고, 고착되거나 무너진 부대는 기다려 주지 않는다.
+## pace_hold 는 Battle.step 이 틱마다 지우므로 여기서는 세우기만 한다.
 func _keep_pace(battle: Battle) -> void:
 	if offensive.is_empty():
 		return
@@ -131,8 +176,11 @@ func _keep_pace(battle: Battle) -> void:
 		var total: float = (s["start"] as Vector2).distance_to(s["target"])
 		var p := 1.0 if total < 0.01 else 1.0 - u.center.distance_to(s["target"]) / total
 		progress[uid] = p
-		if u.state() < Morale.State.PANIC:
+		if u.state() < Morale.State.PANIC and not u.is_pinned():
 			slowest = minf(slowest, p)
+	if slowest == INF:
+		# 기다려 줄 부대가 없다. 공세선은 그대로 둔다.
+		return
 	for uid in progress:
 		var u := battle.unit_by_id(uid)
 		u.pace_hold = u.reaction.is_empty() and progress[uid] > slowest + PACE_SLACK
@@ -140,6 +188,7 @@ func _keep_pace(battle: Battle) -> void:
 		# 모두 도착하면 공세선이 새 전선이 된다.
 		points = offensive
 		offensive = PackedVector2Array()
+		reserve_targets.clear()
 		for uid in progress:
 			battle.unit_by_id(uid).pace_hold = false
 

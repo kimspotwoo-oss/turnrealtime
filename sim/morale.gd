@@ -11,6 +11,8 @@ const ROUTED_BELOW := 15.0
 ## 경험별 충격 시간 (초 = 틱).
 const SHOCK_TICKS := {"recruit": 30, "regular": 20, "elite": 10}
 const SHOCK_MORALE_LOSS := {1: 15.0, 2: 25.0}
+## 약한 충격이 다시 걸릴 수 있기까지 (틱).
+const SHOCK_COOLDOWN := 60
 
 ## 동요: 명중률 −25%, 반응 지연 +2초. 패닉: 사격 −75%.
 const ACCURACY := {State.STEADY: 1.0, State.SHAKEN: 0.75, State.PANIC: 0.25, State.ROUTED: 0.0}
@@ -28,7 +30,8 @@ const QUIET_TICKS := 5
 const SUPPRESSED_AT := 50.0
 const PINNED_AT := 100.0
 const SUPPRESSION_MAX := 150.0
-const SUPPRESSION_DECAY := 0.5
+## 틱마다 줄어드는 제압. 사격이 멈추면 고착(150 → 100)은 25초, 제압(→ 50)은 50초 만에 풀린다.
+const SUPPRESSION_DECAY := 2.0
 
 
 ## shock_level: 0 = 없음, 1 = 약한 충격(최소 동요), 2 = 강한 충격(최소 패닉).
