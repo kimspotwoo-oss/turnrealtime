@@ -17,6 +17,10 @@ extends Node2D
 const STAGE := "res://data/stages/practice.json"
 const TILE_PX := 20.0
 const SYMBOL_PX := 20.0
+## 기호 하나가 차지하는 크기 (칸). 이보다 가까운 두 기호는 겹친 것으로 보고 비켜 그린다.
+const SYMBOL_GAP := Vector2(1.6, 1.5)
+## 비켜 그릴 때 한 바퀴마다 벌어지는 거리 (칸).
+const SYMBOL_SPREAD := 1.8
 ## 사격선을 보여 주는 시간 (틱).
 const FIRE_LINE_TICKS := 4
 const PLAYER_SIDE := "player"
@@ -48,6 +52,9 @@ const CLICK_SLOP := 0.6
 const DOUBLE_CLICK_MSEC := 350
 ## 경로를 그릴 때 점을 찍는 간격 (칸).
 const PATH_SPACING := 1.0
+## 명령 창을 놓아 볼 거리 (고른 부대 가장자리에서, 화면 px)와 방향.
+const CTX_GAPS := [24.0, 70.0, 140.0, 220.0]
+const CTX_SIDES := [Vector2(1, 1), Vector2(1, -1), Vector2(-1, 1), Vector2(-1, -1), Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]
 
 enum Mode { SELECT, MOVE, REVERSE, FORMATION, FACE, RETREAT_POINT, FIRE_POINT, FIRE_PREDICT, DRAW_LINE, DRAW_OFFENSIVE, DRAW_RETREAT_LINE }
 
@@ -140,6 +147,8 @@ var _known_at_start := {}
 var _run_button: Button
 var _speed_button: Button
 var _groups := {}
+## 부대 id → 기호를 그릴 자리 (칸 좌표). 겹친 기호를 비켜 놓는다 (symbol_positions).
+var _symbol_pos := {}
 
 
 func _ready() -> void:
@@ -694,7 +703,48 @@ func finish_draft() -> void:
 	queue_redraw()
 
 
+## 기호끼리 겹치지 않게 그릴 자리. 보이는 부대를 차례로 놓으면서, 이미 놓인 기호와 겹치면
+## 실제 자리 둘레를 돌며 빈 곳을 찾는다. 아군을 먼저 놓아서 아군 기호는 되도록 제자리에 있다.
+func symbol_positions() -> Dictionary:
+	var shown: Array[BattleUnit] = []
+	for u in battle.units:
+		if u.is_alive() and is_shown(u):
+			shown.append(u)
+	shown.sort_custom(func(a, b): return (a.side == PLAYER_SIDE and b.side != PLAYER_SIDE) or (a.side == b.side and a.id < b.id))
+	var placed := {}
+	var spots: Array[Vector2] = []
+	for u in shown:
+		var at := u.center
+		if _symbol_clash(at, spots):
+			for ring in range(1, 4):
+				var found := false
+				for k in 8:
+					var cand := u.center + Vector2.RIGHT.rotated(TAU * k / 8.0 - PI / 2.0) * SYMBOL_SPREAD * ring
+					if not _symbol_clash(cand, spots):
+						at = cand
+						found = true
+						break
+				if found:
+					break
+		placed[u.id] = at
+		spots.append(at)
+	return placed
+
+
+static func _symbol_clash(p: Vector2, spots: Array[Vector2]) -> bool:
+	for q in spots:
+		if absf(p.x - q.x) < SYMBOL_GAP.x and absf(p.y - q.y) < SYMBOL_GAP.y:
+			return true
+	return false
+
+
 func unit_at(p: Vector2) -> BattleUnit:
+	# 비켜 그린 기호를 누르면 그 부대다.
+	for u in battle.units:
+		if u.is_alive() and is_shown(u) and _symbol_pos.has(u.id):
+			var at: Vector2 = _symbol_pos[u.id]
+			if not at.is_equal_approx(u.center) and absf(p.x - at.x) < SYMBOL_GAP.x / 2.0 and absf(p.y - at.y) < SYMBOL_GAP.y / 2.0:
+				return u
 	var tile := Vector2i(p.round())
 	var best: BattleUnit = null
 	for u in battle.units:
@@ -778,6 +828,7 @@ func _draw() -> void:
 			_draw_line_info(line, color, picked)
 	if not running:
 		_draw_reach()
+	_symbol_pos = symbol_positions()
 	for u in battle.units:
 		if u.is_alive() and is_shown(u):
 			_draw_unit(u)
@@ -829,6 +880,13 @@ func _draw_unit(u: BattleUnit) -> void:
 			draw_rect(r, Color.WHITE, false, 1.5)
 	var c := _px(u.center)
 	draw_line(c, c + u.facing * TILE_PX * 1.2, Color.BLACK, 2.0)
+	var at: Vector2 = _symbol_pos.get(u.id, u.center)
+	if not at.is_equal_approx(u.center):
+		# 겹친 기호는 옆으로 비켜 그리고, 실제 자리까지 가는 가는 선을 잇는다.
+		draw_line(c, _px(at), Color(0, 0, 0, 0.8), 3.0)
+		draw_line(c, _px(at), color, 1.5)
+		draw_circle(c, 3.0, color)
+		c = _px(at)
 	UnitSymbol.draw(self, c, SYMBOL_PX, u.type.symbol_icon, u.type.symbol_echelon, u.side != PLAYER_SIDE, color, Color.WHITE if sel else Color.BLACK)
 	_draw_strength(u, c)
 	if u.side == PLAYER_SIDE or show_all:
@@ -903,6 +961,10 @@ func _draw_strength(u: BattleUnit, c: Vector2) -> void:
 		draw_rect(Rect2(o, Vector2(w * frac, h)), color)
 	if u.side == PLAYER_SIDE or show_all:
 		_draw_label(o + Vector2(w + 3, h + 3), str(alive), Color.WHITE, 11)
+		# 포를 잃은 포병·대전차포는 사람이 남아 있어도 쏘지 못한다. 막대만 보면 멀쩡해 보이므로 따로 적는다.
+		var guns := u.initial_count("gun")
+		if guns > 0 and u.alive_count("gun") < guns:
+			_draw_label(o + Vector2(0, h + 14), "포 %d/%d" % [u.alive_count("gun"), guns], Color(1.0, 0.3, 0.2), 11)
 
 
 ## 전력으로 세는 것: 전차 부대는 전차, 나머지는 사람.
@@ -947,6 +1009,9 @@ func _draw_line_info(line: FrontLine, color: Color, picked: bool) -> void:
 		text += " · 예비 %d" % line.reserves.size()
 	if not line.offensive.is_empty():
 		text += " · 전진 중"
+	var gaps := line.open_gaps(battle)
+	if gaps > 0:
+		text += " · 구멍 %d (닿는 예비대 없음)" % gaps
 	# 부대 기호와 전력 막대를 가리지 않게 선 아래에 적는다.
 	var at := _px(line.points[0]) + Vector2(-6, 36)
 	_draw_label(at, text, Color.WHITE if picked else color.lightened(0.6), 13)
@@ -1290,6 +1355,15 @@ func _build_context(layer: CanvasLayer) -> void:
 	_ctx_rejoin = _ctx_button(lrow2, "복귀", func(): Orders.rejoin_line(battle, _own_selected()); _refresh_ui(); queue_redraw())
 	_ctx_line = lbox
 	_ctx_rows = [stance, order, order2, fire, lbox]
+	# 단추 사이 빈 곳과 바탕은 누름을 지도로 넘긴다: 창이 부대를 조금 덮어도 그 부대를 고를 수 있다.
+	_click_through(_ctx)
+
+
+static func _click_through(n: Node) -> void:
+	if n is Control and not n is BaseButton:
+		(n as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for child in n.get_children():
+		_click_through(child)
 
 
 func _ctx_bar(parent: Control, title: String) -> ProgressBar:
@@ -1371,6 +1445,8 @@ func _refresh_context() -> void:
 			notes.append("전개 중 %d초" % first.setup_left)
 		if first.attack_move:
 			notes.append("공격 명령: 사거리까지 접근")
+		if first.initial_count("gun") > 0 and first.alive_count("gun") < first.initial_count("gun"):
+			notes.append("포 %d/%d문" % [first.alive_count("gun"), first.initial_count("gun")] if first.alive_count("gun") > 0 else "포를 모두 잃어 쏘지 못함")
 	_ctx_note.text = ", ".join(notes)
 	_ctx_note.visible = not notes.is_empty()
 	var can_order := _can_order()
@@ -1392,39 +1468,64 @@ func _refresh_context() -> void:
 	_place_context(units)
 
 
-## 고른 부대들의 오른쪽 아래에 둔다. 화면 밖이나 오른쪽 칸 위로 나가면 반대쪽으로 넘긴다.
+## 고른 부대 둘레에서 다른 부대를 가장 덜 가리는 자리에 둔다. 부대가 빽빽하면 바로 옆 네 귀퉁이가
+## 모두 옆 부대 위라서, 둘레를 여러 거리로 훑어 칸·기호와 겹치는 넓이가 가장 작은 곳을 찾는다.
+## 겹침이 같으면 고른 부대에 가까운 곳, 그다음 오른쪽 아래를 먼저 쓴다.
 func _place_context(units: Array[BattleUnit]) -> void:
+	var to_screen := get_canvas_transform()
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
-	var to_screen := get_canvas_transform()
 	for u in units:
-		for t in u.tiles():
-			var p: Vector2 = to_screen * _px(Vector2(t))
-			lo = lo.min(p)
-			hi = hi.max(p)
-	var view := get_viewport_rect().size - Vector2(300, 0)
-	var size := _ctx.size
-	var low := Vector2(4, 50)
-	var high := (view - size).max(low)
-	# 네 귀퉁이 가운데 다른 부대를 가장 덜 가리는 자리를 고른다 (같으면 오른쪽 아래 먼저).
-	var gap := 28.0
-	var spots := [
-		Vector2(hi.x + gap, hi.y + gap), Vector2(hi.x + gap, lo.y - gap - size.y),
-		Vector2(lo.x - gap - size.x, hi.y + gap), Vector2(lo.x - gap - size.x, lo.y - gap - size.y),
-	]
+		for r in _unit_screen_rects(u, to_screen):
+			lo = lo.min(r.position)
+			hi = hi.max(r.end)
+	var others: Array[Rect2] = []
+	for o in battle.units:
+		if o.is_alive() and is_shown(o) and not units.has(o):
+			others.append_array(_unit_screen_rects(o, to_screen))
+	_ctx.position = context_spot(Rect2(lo, hi - lo), _ctx.size, others, Rect2(Vector2(4, 50), get_viewport_rect().size - Vector2(300 + 4, 50)))
+
+
+## 명령 창 자리 고르기 (화면 좌표). sel: 고른 부대를 감싼 사각형, others: 가리면 안 되는 것들,
+## area: 창이 들어갈 수 있는 화면 영역. 시험할 수 있게 화면 상태와 떼어 놓았다.
+static func context_spot(sel: Rect2, size: Vector2, others: Array[Rect2], area: Rect2) -> Vector2:
+	var low := area.position
+	var high := (area.end - size).max(low)
 	var best := low
 	var best_cost := INF
-	for i in spots.size():
-		var pos: Vector2 = (spots[i] as Vector2).clamp(low, high)
-		var rect := Rect2(pos, size).grow(12)
-		var cost := i * 0.1 + pos.distance_to(spots[i]) * 0.02
-		for o in battle.units:
-			if o.is_alive() and is_shown(o) and rect.has_point(to_screen * _px(o.center)):
-				cost += 3.0 if units.has(o) else 1.0
-		if cost < best_cost:
-			best_cost = cost
-			best = pos
-	_ctx.position = best
+	for gap in CTX_GAPS:
+		for k in CTX_SIDES.size():
+			var side: Vector2 = CTX_SIDES[k]
+			# side.x: 1 = 오른쪽, -1 = 왼쪽, 0 = 가운데 맞춤. y 도 같다.
+			var x: float = sel.end.x + gap if side.x > 0 else (sel.position.x - gap - size.x if side.x < 0 else sel.get_center().x - size.x / 2.0)
+			var y: float = sel.end.y + gap if side.y > 0 else (sel.position.y - gap - size.y if side.y < 0 else sel.get_center().y - size.y / 2.0)
+			var want := Vector2(x, y)
+			var pos := want.clamp(low, high)
+			var rect := Rect2(pos, size).grow(4)
+			var cost := 0.0
+			if rect.intersects(sel):
+				cost += rect.intersection(sel).get_area() * 3.0
+			for o in others:
+				if rect.intersects(o):
+					cost += rect.intersection(o).get_area()
+			# 겹침 1칸(400px²)이 거리 100px 쯤과 맞먹게 한다.
+			cost += (pos.distance_to(sel.get_center()) + pos.distance_to(want)) * 2.0 + k * 0.5
+			if cost < best_cost:
+				best_cost = cost
+				best = pos
+	return best
+
+
+## 부대가 화면에서 차지하는 사각형들: 칸마다 하나, 기호와 전력 막대에 하나.
+func _unit_screen_rects(u: BattleUnit, to_screen: Transform2D) -> Array[Rect2]:
+	var out: Array[Rect2] = []
+	var scale := to_screen.get_scale().x
+	for t in u.tiles():
+		out.append(Rect2(to_screen * (Vector2(t) * TILE_PX), Vector2(TILE_PX, TILE_PX) * scale))
+	var c: Vector2 = to_screen * _px(u.center)
+	var half := Vector2(SYMBOL_PX * 0.9, SYMBOL_PX * 0.9) * scale
+	out.append(Rect2(c - half, half * 2.0 + Vector2(0, SYMBOL_PX * 0.4 * scale)))
+	return out
 
 
 func _group(parent: Control, key: String, title: String) -> HBoxContainer:
@@ -1527,7 +1628,11 @@ func make_report() -> String:
 		if not u.is_alive():
 			parts.append("전멸")
 		elif lost > 0:
-			parts.append("%d명 잃음" % lost if not u.type.is_vehicle() else "%d 잃음" % lost)
+			var guns_lost: int = u.turn_log.get("lost_guns", 0)
+			if lost > guns_lost:
+				parts.append("%d명 잃음" % (lost - guns_lost) if not u.type.is_vehicle() else "%d대 잃음" % lost)
+			if guns_lost > 0:
+				parts.append("포 %d문 잃음" % guns_lost)
 		var before: int = u.turn_log.get("state", 0)
 		if u.is_alive() and u.state() != before:
 			parts.append("%s → %s" % [STATE_NAMES[before], STATE_NAMES[u.state()]])
@@ -1553,6 +1658,10 @@ func make_report() -> String:
 			found += 1
 	if found > 0:
 		lines.append("새로 발견한 적 %d부대" % found)
+	# 턴을 시작할 때 보고 있던 적이 이번 턴에 전멸했으면 알려 준다 (못 보던 적의 전멸은 알 수 없다).
+	for e in battle.units:
+		if e.side != PLAYER_SIDE and not e.is_alive() and e.turn_log.get("fit", false) and _known_at_start.has(e.id):
+			lines.append("적 %s 격파" % e.type.name)
 	if lines.size() == 1:
 		lines.append("큰 변화 없음")
 	return "\n".join(lines)
@@ -1568,6 +1677,8 @@ func _describe_selection() -> String:
 	var lines: Array[String] = ["%s  %s" % [u.type.name, u.id]]
 	var kinds := "vehicle" if u.type.is_vehicle() else "man"
 	lines.append("병력 %d / %d" % [u.alive_count(kinds), u.initial_count(kinds)])
+	if u.initial_count("gun") > 0 and (u.side == PLAYER_SIDE or show_all):
+		lines.append("포 %d / %d문" % [u.alive_count("gun"), u.initial_count("gun")])
 	var ranges: Array[String] = []
 	for w in u.type.weapons:
 		ranges.append("%s %dm" % [w.name, roundi(w.range_tiles * BattleMap.TILE_METERS)])
@@ -1579,6 +1690,9 @@ func _describe_selection() -> String:
 	var line := Orders.line_of(battle, u.id)
 	if line != null:
 		lines.append("%s %s%s" % [line.id, "예비대" if line.reserves.has(u.id) else "전선", " (개별 명령)" if u.individual else ""])
+		var sector := line.reserve_sector(battle, u.id)
+		if not sector.is_empty():
+			lines.append("맡은 구간: 전선의 %d~%d%% (왼쪽 끝이 0)" % [roundi(sector[0] * 100.0), roundi(sector[1] * 100.0)])
 	var t := battle.unit_by_id(u.last_target)
 	if t != null and battle.tick - u.last_fire_tick <= 10:
 		lines.append("사격 대상: %s %s" % [t.type.name, t.id])
