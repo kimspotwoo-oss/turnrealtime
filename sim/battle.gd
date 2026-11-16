@@ -139,7 +139,7 @@ func begin_turn() -> void:
 		ai.plan_turn(self)
 	for u in units:
 		u.turn_start_center = u.center
-		u.turn_log = {"state": u.state(), "alive": u.alive_count(), "lost": 0, "shelled": 0, "unseen": 0, "shock": 0}
+		u.turn_log = {"state": u.state(), "alive": u.alive_count(), "fit": u.is_alive(), "lost": 0, "shelled": 0, "unseen": 0, "shock": 0}
 
 
 func turn_over() -> bool:
@@ -342,8 +342,12 @@ func _speed(u: BattleUnit) -> float:
 	if u.type.is_vehicle():
 		if map.terrain_at(tile) == "road" and u.type.speed.has("road"):
 			return float(u.type.speed["road"])
-		return float(u.type.speed["vehicle"]) * p["move_vehicle"]
-	return float(u.type.speed["foot"]) * p["move_foot"]
+		return float(u.type.speed["vehicle"]) * p["move_vehicle"] * _formation_speed(u)
+	return float(u.type.speed["foot"]) * p["move_foot"] * _formation_speed(u)
+
+
+static func _formation_speed(u: BattleUnit) -> float:
+	return Formation.DISPERSED_SPEED if u.formation == "dispersed" else 1.0
 
 
 ## 전차끼리는 같은 칸에 들어갈 수 없다. 이미 겹쳐 있으면 겹침이 늘어나는 움직임만 막아서,
@@ -407,6 +411,8 @@ func _update_vision() -> void:
 				if e.side != u.side and (_sees(u, e) or _revealed_by_fire(u, e)):
 					seen[e.id] = true
 		var extra: int = Morale.EXTRA_REACTION[u.state()]
+		if u.formation == "dispersed":
+			extra += Formation.DISPERSED_EXTRA_REACTION
 		for eid in seen:
 			if u.reaction.has(eid):
 				u.reaction[eid] = maxi(0, u.reaction[eid] - 1)
@@ -496,7 +502,9 @@ func _engage() -> void:
 				u.move_target = u.retreat_point
 			BattleUnit.Stance.HOLD:
 				# 저지: 적이 사거리 깊이 들어오면 그 자리에 멈춰 막는다. 적 진로 앞으로 나가는 건 나중에.
-				if d > engage_range * HOLD_STOP_FRACTION:
+				# 포는 사거리가 시야보다 훨씬 길다. 제 눈에 보이는 거리 밖의 적 때문에 서지는 않는다
+				# (그러지 않으면 옮기는 중인 대전차포가 1km 밖 적을 보고 영영 서 있는다).
+				if d > minf(engage_range, u.type.sight_tiles) * HOLD_STOP_FRACTION:
 					continue
 				u.engage_point = u.center
 				if u.arrive_facing != null:
@@ -887,6 +895,8 @@ func _apply(hits: Array[Dictionary]) -> void:
 				e["hp"] = maxf(0.0, e["hp"] - h["damage"])
 				if e["hp"] == 0.0:
 					losses[t] = losses.get(t, 0) + 1
+					if e["kind"] == "gun":
+						t.turn_log["lost_guns"] = t.turn_log.get("lost_guns", 0) + 1
 					if h["attacker"] != null:
 						var by: Dictionary = t.turn_log.get("by", {})
 						var who: String = h["attacker"].type.name if h["attacker"].side != t.side else "아군 포격"
@@ -949,14 +959,17 @@ func _update_morale() -> void:
 		if u.shock_ticks > 0:
 			u.shock_ticks -= 1
 		elif tick - u.last_attacked_tick > Morale.QUIET_TICKS:
-			u.morale = minf(_morale_cap(u), u.morale + Morale.RECOVERY_PER_TICK)
+			var recovery := Morale.RECOVERY_PER_TICK
+			if u.formation == "dispersed":
+				recovery *= Formation.DISPERSED_RECOVERY
+			u.morale = minf(_morale_cap(u), u.morale + recovery)
 		u.morale = clampf(u.morale, 0.0, 100.0)
 
 
 ## 잃은 병력만큼은 회복되지 않는다.
 func _morale_cap(u: BattleUnit) -> float:
 	var lost := 1.0 - float(u.alive_count()) / u.initial_count()
-	return 100.0 - Morale.LOSS_TO_MORALE * lost
+	return 100.0 - Morale.LOSS_MORALE_CAP * lost
 
 
 # --- 9. 승리 조건 -----------------------------------------------------------

@@ -18,8 +18,11 @@ const SHOCK_COOLDOWN := 60
 const ACCURACY := {State.STEADY: 1.0, State.SHAKEN: 0.75, State.PANIC: 0.25, State.ROUTED: 0.0}
 const EXTRA_REACTION := {State.STEADY: 0, State.SHAKEN: 2, State.PANIC: 4, State.ROUTED: 0}
 
-## 피해로 깎이는 사기: 전체 병력을 잃으면 이만큼.
-const LOSS_TO_MORALE := 60.0
+## 피해로 깎이는 사기: 전체 병력을 잃으면 이만큼. 소대는 병력의 절반을 잃기 전에 무너진다.
+const LOSS_TO_MORALE := 110.0
+## 잃은 병력 때문에 회복할 수 없는 사기: 전체 병력을 잃으면 이만큼. 쉬면 다시 싸울 수 있게
+## LOSS_TO_MORALE 보다 작다 (절반을 잃은 소대도 쉬면 '동요'까지 돌아온다).
+const LOSS_MORALE_CAP := 60.0
 ## 제압 중일 때 틱마다 깎이는 사기.
 const SUPPRESSED_DRAIN := 0.1
 ## 공격받지 않을 때 틱마다 회복하는 사기.

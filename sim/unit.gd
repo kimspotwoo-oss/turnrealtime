@@ -78,7 +78,8 @@ var unseen_from = null
 var unseen_tick := -1000
 ## 이번 턴 기록 (턴 보고용). begin_turn 에서 비운다.
 ## {"state": 시작 사기 상태, "alive": 시작 병력, "lost": 잃은 수, "shelled": 가까이 떨어진 포탄 수,
-##  "unseen": 보이지 않는 적에게 맞은 수, "shock": 충격 횟수}
+##  "unseen": 보이지 않는 적에게 맞은 수, "shock": 충격 횟수, "fit": 시작할 때 싸울 수 있었는지,
+##  "lost_guns": 잃은 포 수, "by": {쏜 병과 이름: 잃은 수}}
 var turn_log := {}
 
 ## 지난 턴의 초당 이동 (예측 사격용).

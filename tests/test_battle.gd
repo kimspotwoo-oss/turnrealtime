@@ -412,3 +412,18 @@ func test_tank_point_fire_shells_a_spot_in_sight() -> void:
 	for i in 20:
 		b.step()
 	check(behind.last_fire_point == null, "숲에 가려 시선이 닿지 않으면 쏘지 못한다")
+
+
+func test_hold_gun_keeps_moving_until_enemy_is_within_sight() -> void:
+	var b := _battle()
+	var gun := b.add_unit(BattleUnit.new("gun", "red", types["at_gun"], Vector2(10, 38), Vector2.UP))
+	var foe := b.add_unit(BattleUnit.new("foe", "blue", types["infantry_platoon"], Vector2(10, 8), Vector2.DOWN))
+	var spotter := b.add_unit(BattleUnit.new("spot", "red", types["infantry_platoon"], Vector2(30, 20), Vector2.UP))
+	spotter.stance = BattleUnit.Stance.IGNORE
+	foe.stance = BattleUnit.Stance.IGNORE
+	gun.stance = BattleUnit.Stance.HOLD
+	Orders.move(gun, Vector2(10, 30))
+	for i in 40:
+		b.step()
+	check(b.side_knows("red", foe), "아군이 적을 보고 있다")
+	check(gun.center.y < 37.0 and gun.hold_reason != "engaged", "저지 태세 포는 시야 밖(30칸)의 적 때문에 멈추지 않는다: %s" % gun.center)
