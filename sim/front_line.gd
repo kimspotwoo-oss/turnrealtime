@@ -24,6 +24,8 @@ var retreat: PackedVector2Array
 
 ## 공세선에서 이만큼(진행 비율) 앞서면 나머지를 기다린다.
 const PACE_SLACK := 0.08
+## 맡은 예비대가 무너졌을 때 다른 구간의 예비대를 불러오는 한계 (곧장 가서 걸리는 턴).
+const RESERVE_REACH_TURNS := 5.0
 
 ## 부대 id → {"slot": float, "start": Vector2, "target": Vector2}
 var _slots := {}
@@ -108,8 +110,8 @@ func slot_of(unit_id: String) -> float:
 	return _slots.get(unit_id, {}).get("slot", -1.0)
 
 
-## 무너진(패닉·패주·전멸) 부대 자리에 가장 가까운 예비대를 보낸다. 무너진 부대는
-## 예비대로 돌아가서, 회복하면 다시 구멍을 메울 수 있다.
+## 무너진(패닉·패주·전멸) 부대 자리에 그 구간을 맡은 예비대를 보낸다 (reserve_for_gap).
+## 무너진 부대는 예비대로 돌아가서, 회복하면 다시 구멍을 메울 수 있다.
 func _fill_gaps(battle: Battle) -> void:
 	for i in units.size():
 		var u := battle.unit_by_id(units[i])
@@ -118,7 +120,7 @@ func _fill_gaps(battle: Battle) -> void:
 		var slot: Dictionary = _slots.get(units[i], {})
 		if slot.is_empty():
 			continue
-		var r := nearest_reserve(battle, slot["target"])
+		var r := reserve_for_gap(battle, slot["slot"], slot["target"])
 		if r == null:
 			continue
 		reserves.erase(r.id)
@@ -131,12 +133,87 @@ func _fill_gaps(battle: Battle) -> void:
 		send_to_slot(r, slot["slot"], slot["target"])
 
 
+## 예비대는 전선을 나눠 맡는다. 살아 있는 예비대를 전선에 비춘 자리 순서로 늘어놓고, 전선을
+## 그 수만큼 똑같이 나눠 하나씩 맡긴다. 구멍(전선 비율 f)이 난 구간을 맡은 예비대가 싸울 수
+## 있고 RESERVE_REACH_TURNS 안에 닿으면 그 부대가 간다. 아니면 그 안에 닿는 예비대 가운데
+## 가장 빨리 닿는 부대가 간다. 그것도 없으면 null: 전선 반대쪽 끝에서 몇 턴씩 걸어오느라
+## 제 구간을 비우지 않는다.
+func reserve_for_gap(battle: Battle, f: float, target: Vector2) -> BattleUnit:
+	var owner := sector_owner(battle, f)
+	if owner != null and _usable_reserve(owner) and travel_turns(battle, owner, target) <= RESERVE_REACH_TURNS:
+		return owner
+	var best: BattleUnit = null
+	var best_turns := RESERVE_REACH_TURNS
+	for rid in reserves:
+		var r := battle.unit_by_id(rid)
+		if r == null or not _usable_reserve(r):
+			continue
+		var turns := travel_turns(battle, r, target)
+		if turns <= best_turns:
+			best_turns = turns
+			best = r
+	return best
+
+
+## 무너진 채 비어 있는 자리 수: 메울 예비대가 없거나 너무 멀다 (화면 표시용).
+func open_gaps(battle: Battle) -> int:
+	var n := 0
+	for uid in units:
+		var u := battle.unit_by_id(uid)
+		if u != null and u.is_alive() and u.state() < Morale.State.PANIC:
+			continue
+		var slot: Dictionary = _slots.get(uid, {})
+		if not slot.is_empty() and reserve_for_gap(battle, slot["slot"], slot["target"]) == null:
+			n += 1
+	return n
+
+
+## 전선 비율 f 구간을 맡은 예비대 (무너진 상태여도 돌려준다). 예비대가 없으면 null.
+func sector_owner(battle: Battle, f: float) -> BattleUnit:
+	var order := sector_order(battle)
+	if order.is_empty():
+		return null
+	return order[clampi(floori(f * order.size()), 0, order.size() - 1)]
+
+
+## 살아 있는 예비대를 전선에 비춘 자리 순서로 늘어놓은 것. i 번째가 [i/n, (i+1)/n] 구간을 맡는다.
+func sector_order(battle: Battle) -> Array[BattleUnit]:
+	var order: Array[BattleUnit] = []
+	var proj := {}
+	for rid in reserves:
+		var r := battle.unit_by_id(rid)
+		if r != null and r.is_alive():
+			order.append(r)
+			proj[r.id] = project(points, r.center)
+	order.sort_custom(func(a, b): return proj[a.id] < proj[b.id] or (proj[a.id] == proj[b.id] and a.id < b.id))
+	return order
+
+
+## 예비대가 맡은 구간 [시작, 끝] (전선 비율). 예비대가 아니면 빈 배열.
+func reserve_sector(battle: Battle, unit_id: String) -> PackedFloat32Array:
+	var order := sector_order(battle)
+	for i in order.size():
+		if order[i].id == unit_id:
+			return PackedFloat32Array([float(i) / order.size(), float(i + 1) / order.size()])
+	return PackedFloat32Array()
+
+
+## 곧장 갈 때 걸리는 턴 수 (지형은 빼고 어림한다).
+static func travel_turns(battle: Battle, r: BattleUnit, p: Vector2) -> float:
+	var per_min := float(r.type.speed.get("vehicle", r.type.speed.get("foot", 1.0)))
+	return r.center.distance_to(p) / (per_min * battle.turn_seconds / 60.0)
+
+
+static func _usable_reserve(r: BattleUnit) -> bool:
+	return r.is_alive() and r.state() < Morale.State.PANIC
+
+
 func nearest_reserve(battle: Battle, p: Vector2, prefer_vehicle := false) -> BattleUnit:
 	var best: BattleUnit = null
 	var best_score := INF
 	for rid in reserves:
 		var r := battle.unit_by_id(rid)
-		if r == null or not r.is_alive() or r.state() >= Morale.State.PANIC:
+		if r == null or not _usable_reserve(r):
 			continue
 		var score := r.center.distance_to(p)
 		if prefer_vehicle and r.type.is_vehicle():
@@ -213,6 +290,26 @@ static func point_at(line: PackedVector2Array, f: float) -> Vector2:
 			return line[i - 1].lerp(line[i], 0.0 if seg == 0.0 else minf(1.0, want / seg))
 		want -= seg
 	return line[line.size() - 1]
+
+
+## 점 p 를 꺾은선에 비췄을 때 가장 가까운 지점의 길이 비율 (0~1).
+static func project(line: PackedVector2Array, p: Vector2) -> float:
+	var total := polyline_length(line)
+	if line.size() < 2 or total == 0.0:
+		return 0.5
+	var best_d := INF
+	var best_f := 0.0
+	var walked := 0.0
+	for i in range(1, line.size()):
+		var a := line[i - 1]
+		var b := line[i]
+		var q := Geometry2D.get_closest_point_to_segment(p, a, b)
+		var d := q.distance_to(p)
+		if d < best_d:
+			best_d = d
+			best_f = (walked + a.distance_to(q)) / total
+		walked += a.distance_to(b)
+	return best_f
 
 
 ## 길이 비율 f 지점 구간의 법선 중 적 쪽을 향한 것.

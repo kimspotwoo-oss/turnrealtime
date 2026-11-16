@@ -109,6 +109,7 @@ static func set_stance(b: Battle, units: Array[BattleUnit], stance: BattleUnit.S
 	var line := common_line(b, units)
 	if line != null and line.units.size() == units.size():
 		line.stance = stance
+		_reserves_follow_stance(b, line)
 
 
 static func fire_at_point(u: BattleUnit, p: Vector2) -> void:
@@ -210,7 +211,7 @@ static func set_retreat_line(b: Battle, line: FrontLine, points: PackedVector2Ar
 	line.apply(b)
 
 
-## 예비대로 돌린다. 예비대는 제자리에서 기다리다 전선에 구멍이 나면 메운다.
+## 예비대로 돌린다. 예비대는 전선과 같은 태세로 제자리에서 기다리다 전선에 구멍이 나면 메운다.
 static func add_reserves(b: Battle, line: FrontLine, units: Array[BattleUnit]) -> void:
 	var ids: Array[String] = []
 	for u in units:
@@ -220,6 +221,15 @@ static func add_reserves(b: Battle, line: FrontLine, units: Array[BattleUnit]) -
 		line.reserves.append(u.id)
 		u.individual = false
 		u.move_target = null
+		u.stance = line.stance
+
+
+## 예비대는 전선과 같은 태세로 기다린다. 따로 명령받은 예비대는 건드리지 않는다.
+static func _reserves_follow_stance(b: Battle, line: FrontLine) -> void:
+	for rid in line.reserves:
+		var r := b.unit_by_id(rid)
+		if r != null and not r.individual:
+			r.stance = line.stance
 
 
 ## 다른 전선에서 빼고, 빈 전선은 지운다.

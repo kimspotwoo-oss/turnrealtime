@@ -10,8 +10,8 @@
 		"setup_seconds": 0,
 		"melee_power": 1.0,
 		"weapons": [
-			{"id": "rifle", "name": "소총", "scale": "man", "count": 27, "damage": 30, "pen": [1, 1], "range_m": 300, "interval_s": 4, "accuracy": [0.15, 0.05], "suppression": 0.3},
-			{"id": "lmg", "name": "경기관총", "scale": "man", "count": 3, "damage": 20, "pen": [1, 1], "range_m": 300, "interval_s": 1, "accuracy": [0.15, 0.05], "suppression": 1.2},
+			{"id": "rifle", "name": "소총", "scale": "man", "count": 27, "damage": 30, "pen": [1, 1], "range_m": 300, "interval_s": 4, "accuracy": [0.25, 0.05], "suppression": 0.3},
+			{"id": "lmg", "name": "경기관총", "scale": "man", "count": 3, "damage": 20, "pen": [1, 1], "range_m": 300, "interval_s": 1, "accuracy": [0.25, 0.05], "suppression": 1.2},
 			{"id": "close_at", "name": "근접 대전차 무기", "scale": "man", "count": 3, "damage": 120, "pen": [100, 100], "range_m": 25, "interval_s": 10, "accuracy": [0.5, 0.5], "suppression": 0.0, "close_at": true}
 		]
 	},

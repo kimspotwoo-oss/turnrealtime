@@ -113,3 +113,17 @@ func test_attack_order_closes_to_max_range_and_stops() -> void:
 	check(u.focus_target == "e", "그 적을 먼저 쏜다")
 	Orders.move(u, Vector2(10, 33))
 	check(not u.attack_move, "이동 명령을 내리면 공격 명령은 끝난다")
+
+
+func test_reserves_take_the_line_stance() -> void:
+	var b := StageLoader.load_file("res://data/stages/practice.json")
+	var line := b.front_line("player_main")
+	var tank := b.unit_by_id("p_tank1")
+	Orders.set_stance(b, [tank] as Array[BattleUnit], BattleUnit.Stance.RETREAT)
+	Orders.add_reserves(b, line, [tank] as Array[BattleUnit])
+	check(tank.stance == line.stance, "예비대가 되면 전선 태세를 따른다")
+	var members: Array[BattleUnit] = []
+	for id in line.units:
+		members.append(b.unit_by_id(id))
+	Orders.set_stance(b, members, BattleUnit.Stance.HOLD)
+	check(line.stance == BattleUnit.Stance.HOLD and tank.stance == BattleUnit.Stance.HOLD, "전선 태세를 바꾸면 예비대도 바뀐다")

@@ -3,8 +3,8 @@ extends TestCase
 
 func test_practice_stage_loads() -> void:
 	var b := StageLoader.load_file("res://data/stages/practice.json")
-	check(b.map.width == 60 and b.map.height == 40, "60×40칸")
-	check(b.turn_limit == 25, "25턴 제한")
+	check(b.map.width == 60 and b.map.height == 50, "60×50칸")
+	check(b.turn_limit == 28, "28턴 제한")
 	var per_side := {}
 	for u in b.units:
 		per_side[u.side] = per_side.get(u.side, 0) + 1
@@ -32,3 +32,13 @@ func test_easy_difficulty_trims_enemy_and_adds_turns() -> void:
 	check(easy.unit_by_id("a_inf1").experience == "recruit" and easy.unit_by_id("p_inf1").experience == "regular", "적만 신병")
 	check(not easy.front_line("ai_main").reserves.has("a_tank2"), "없는 부대는 예비대 목록에도 없다")
 	check(easy.ai_players[0].difficulty == "easy", "AI 난이도")
+
+
+func test_hard_difficulty_adds_an_at_gun() -> void:
+	var normal := StageLoader.load_file("res://data/stages/practice.json")
+	var easy := StageLoader.load_file("res://data/stages/practice.json", {}, -1, "easy")
+	var hard := StageLoader.load_file("res://data/stages/practice.json", {}, -1, "hard")
+	check(hard.unit_by_id("a_at3") != null, "어려움은 적 대전차포가 하나 더 있다")
+	check(normal.unit_by_id("a_at3") == null and easy.unit_by_id("a_at3") == null, "다른 난이도에는 없다")
+	check(hard.turn_limit == normal.turn_limit, "턴 수는 보통과 같다")
+	check(hard.unit_by_id("a_inf1").experience == "elite", "적은 정예")

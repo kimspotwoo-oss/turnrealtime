@@ -14,7 +14,7 @@ const STANCES := {
 const DIFFICULTY_EXPERIENCE := {"easy": "recruit", "normal": "regular", "hard": "elite"}
 
 
-## difficulty: easy, normal, hard. 스테이지의 "difficulty" 항목에 따라 적 편성과 턴 수가 달라지고,
+## difficulty: easy, normal, hard. 스테이지의 "difficulty" 항목과 부대의 "only" 에 따라 적 편성과 턴 수가 달라지고,
 ## AI 의 판단 폭과 적 숙련도가 달라진다. 무기 수치는 바뀌지 않는다.
 static func load_file(path: String, unit_types := {}, seed_override := -1, difficulty := "normal") -> Battle:
 	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
@@ -24,7 +24,11 @@ static func load_file(path: String, unit_types := {}, seed_override := -1, diffi
 
 static func build(data: Dictionary, unit_types: Dictionary, seed_override := -1, difficulty := "normal") -> Battle:
 	var tweak: Dictionary = data.get("difficulty", {}).get(difficulty, {})
-	var removed: Array = tweak.get("remove", [])
+	var removed: Array = tweak.get("remove", []).duplicate()
+	# "only" 가 적힌 부대는 그 난이도에서만 나온다.
+	for d in data["units"]:
+		if d.has("only") and d["only"] != difficulty:
+			removed.append(d["id"])
 	var ai_sides := {}
 	for d in data.get("ai", []):
 		ai_sides[d["side"]] = true

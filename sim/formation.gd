@@ -4,6 +4,13 @@ extends RefCounted
 
 const KINDS := ["line", "column", "wedge", "dispersed"]
 
+## 분산 대형의 대가. 사람 사이가 벌어지면 포탄 한 발에 덜 다치는 대신, 분대장이 소리와 손짓으로
+## 부하를 다 챙기지 못한다: 걸음이 느려지고, 적을 보고 반응하기까지 더 걸리고,
+## 흩어진 병사들이 서로 기대지 못해 사기가 더디게 돌아온다.
+const DISPERSED_SPEED := 0.75
+const DISPERSED_EXTRA_REACTION := 1
+const DISPERSED_RECOVERY := 0.5
+
 
 static func local_offsets(kind: String, n: int) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []

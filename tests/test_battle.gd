@@ -72,6 +72,23 @@ func test_no_direct_fire_into_melee_tile() -> void:
 	check(red2.cooldowns["rifle"] == 0, "밖의 부대는 근접전 칸에 직사하지 않는다")
 
 
+func test_melee_continues_when_the_men_on_that_tile_are_gone() -> void:
+	var b := _battle()
+	var inf := b.add_unit(BattleUnit.new("inf", "red", types["infantry_platoon"], Vector2(10, 10), Vector2.UP, "line", 8))
+	var gun := b.add_unit(BattleUnit.new("gun", "blue", types["at_gun"], Vector2(10, 10), Vector2.DOWN))
+	var tiles := inf.tiles()
+	var shared := gun.tiles()[0]
+	check(tiles.has(shared), "두 부대가 한 칸을 같이 쓴다")
+	for i in inf.elements.size():
+		if inf.element_tile(i, tiles) == shared:
+			inf.elements[i]["hp"] = 0.0
+	for i in 300:
+		b.step()
+		if gun.alive_count("man") == 0:
+			break
+	check(gun.alive_count("man") == 0, "그 칸을 맡은 병사가 쓰러져도 옆 병사들이 근접전을 끝낸다 (남은 포반 %d명)" % gun.alive_count("man"))
+
+
 func test_melee_unit_can_only_retreat() -> void:
 	var b := _battle()
 	var inf: UnitType = types["infantry_platoon"]
@@ -291,6 +308,25 @@ func test_firing_reveals_shooter_to_target() -> void:
 	check(b.can_see(tank, gun), "쏘면 맞은 쪽에 위치가 드러난다")
 
 
+func test_enemy_count_is_known_only_inside_friendly_sight() -> void:
+	var b := _battle()
+	b.map.fill_rect(Rect2i(0, 18, 40, 3), "forest")
+	var gun := b.add_unit(BattleUnit.new("g", "red", types["at_gun"], Vector2(10, 19), Vector2.DOWN))
+	var tank := b.add_unit(BattleUnit.new("t", "blue", types["medium_tank_platoon"], Vector2(10, 38), Vector2.UP, "line", 3))
+	var open := b.add_unit(BattleUnit.new("o", "red", types["at_gun"], Vector2(14, 30), Vector2.DOWN))
+	b.step()
+	check(b.side_sees("blue", open), "시야 안의 적은 병력 수까지 안다")
+	check(not b.side_knows("blue", gun) and not b.side_sees("blue", gun), "숲 속 적은 모른다")
+	gun.last_target = "t"
+	gun.last_fire_tick = b.tick
+	b.step()
+	check(b.side_knows("blue", gun), "쏜 적은 자리가 드러난다")
+	check(not b.side_sees("blue", gun), "시야 밖에서 자리만 드러난 적의 병력 수는 모른다")
+	tank.center = Vector2(10, 30)
+	b.step()
+	check(b.side_sees("blue", gun), "시야 안으로 들어오면 병력 수도 안다")
+
+
 func test_tank_drives_around_forest() -> void:
 	var b := _battle()
 	b.map.fill_rect(Rect2i(5, 15, 10, 3), "forest")
@@ -412,3 +448,59 @@ func test_tank_point_fire_shells_a_spot_in_sight() -> void:
 	for i in 20:
 		b.step()
 	check(behind.last_fire_point == null, "숲에 가려 시선이 닿지 않으면 쏘지 못한다")
+
+
+func test_hold_gun_keeps_moving_until_enemy_is_within_sight() -> void:
+	var b := _battle()
+	var gun := b.add_unit(BattleUnit.new("gun", "red", types["at_gun"], Vector2(10, 38), Vector2.UP))
+	var foe := b.add_unit(BattleUnit.new("foe", "blue", types["infantry_platoon"], Vector2(10, 8), Vector2.DOWN))
+	var spotter := b.add_unit(BattleUnit.new("spot", "red", types["infantry_platoon"], Vector2(30, 20), Vector2.UP))
+	spotter.stance = BattleUnit.Stance.IGNORE
+	foe.stance = BattleUnit.Stance.IGNORE
+	gun.stance = BattleUnit.Stance.HOLD
+	Orders.move(gun, Vector2(10, 30))
+	for i in 40:
+		b.step()
+	check(b.side_knows("red", foe), "아군이 적을 보고 있다")
+	check(gun.center.y < 37.0 and gun.hold_reason != "engaged", "저지 태세 포는 시야 밖(30칸)의 적 때문에 멈추지 않는다: %s" % gun.center)
+
+
+func test_arriving_unit_faces_nearest_known_enemy() -> void:
+	var b := _battle()
+	var gun := b.add_unit(BattleUnit.new("gun", "red", types["at_gun"], Vector2(10, 30), Vector2.UP))
+	var foe := b.add_unit(BattleUnit.new("foe", "blue", types["infantry_platoon"], Vector2(14, 16), Vector2.DOWN))
+	gun.stance = BattleUnit.Stance.IGNORE
+	foe.stance = BattleUnit.Stance.IGNORE
+	Orders.move(gun, Vector2(14, 30))
+	for i in 100:
+		b.step()
+	check(gun.move_target == null, "도착했다")
+	check(gun.facing.dot(Vector2.UP) > 0.9, "옆으로 걸어와도 도착하면 적 쪽을 본다: %s" % gun.facing)
+	Orders.move(gun, Vector2(18, 30))
+	Orders.face(gun, Vector2(40, 30))
+	for i in 100:
+		b.step()
+	check(gun.facing.is_equal_approx(Vector2.RIGHT), "방향 명령이 있으면 그 방향이 우선한다")
+
+
+func test_panicked_infantry_is_harder_to_hit() -> void:
+	var u := BattleUnit.new("u", "red", types["infantry_platoon"], Vector2(10, 10))
+	check(not Battle.is_prone(u), "멀쩡한 소대는 서 있다")
+	u.morale = 30.0
+	check(Battle.is_prone(u), "패닉에 빠진 소대는 엎드린다")
+
+
+func test_at_gun_fires_at_spotted_tanks_but_not_spotted_infantry() -> void:
+	# 대전차포 시야(16칸) 밖, 아군 보병 시야 안. 보병만 있으면 쏘지 않는다.
+	var b := _battle()
+	var gun := b.add_unit(BattleUnit.new("g", "red", types["at_gun"], Vector2(10, 38), Vector2.UP))
+	b.add_unit(BattleUnit.new("spot", "red", types["infantry_platoon"], Vector2(22, 28), Vector2.UP, "line", 6))
+	var foot := b.add_unit(BattleUnit.new("f", "blue", types["infantry_platoon"], Vector2(10, 12), Vector2.DOWN, "line", 6))
+	for i in 30:
+		b.step()
+	check(b.side_knows("red", foot) and not b.can_see(gun, foot), "아군이 본 적 보병이지만 대전차포 눈에는 안 보인다")
+	check(gun.last_fire_tick < 0, "멀리 있는 보병은 쏘지 않는다 (자리를 드러내지 않는다)")
+	var tank := b.add_unit(BattleUnit.new("t", "blue", types["medium_tank_platoon"], Vector2(14, 14), Vector2.DOWN, "line", 3))
+	for i in 30:
+		b.step()
+	check(gun.last_target == tank.id, "아군이 본 적 전차는 멀리서도 쏜다")

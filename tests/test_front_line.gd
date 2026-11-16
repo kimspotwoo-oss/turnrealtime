@@ -80,6 +80,40 @@ func test_reserve_fills_broken_slot() -> void:
 	check(broken.move_target == null, "무너진 부대는 옛 자리로 혼자 가지 않는다")
 
 
+func test_reserve_covers_its_own_sector() -> void:
+	var b := _battle_with_line(4)
+	var line := b.front_lines[0]
+	# 전선 자리: x = 13.5, 24.5, 35.5, 46.5 (y = 18). 서쪽 예비대가 동쪽 끝에 더 가깝게 서 있어도
+	# 동쪽 구멍은 동쪽 구간을 맡은 예비대가 메운다.
+	var west := b.add_unit(BattleUnit.new("west", "red", types["infantry_platoon"], Vector2(30, 14)))
+	var east := b.add_unit(BattleUnit.new("east", "red", types["infantry_platoon"], Vector2(44, 10)))
+	line.reserves.append_array(["west", "east"])
+	check(line.sector_owner(b, 0.9) == east and line.sector_owner(b, 0.1) == west, "예비대는 전선을 나눠 맡는다")
+	check(line.reserve_sector(b, "west") == PackedFloat32Array([0.0, 0.5]), "서쪽 예비대는 왼쪽 절반")
+	b.unit_by_id("u3").morale = 10.0
+	b.step()
+	check(line.units.has("east") and line.reserves.has("west"), "동쪽 구멍에는 동쪽 예비대가 간다")
+
+
+func test_far_reserve_does_not_cross_the_line() -> void:
+	var b := Battle.new(BattleMap.new(80, 40), 3)
+	var line := FrontLine.new("main", "red", PackedVector2Array([Vector2(4, 18), Vector2(76, 18)]), Vector2(0, 1))
+	for i in 3:
+		var u := b.add_unit(BattleUnit.new("u%d" % i, "red", types["infantry_platoon"], Vector2(10 + i * 25, 10)))
+		line.units.append(u.id)
+	b.front_lines.append(line)
+	line.apply(b)
+	var r := b.add_unit(BattleUnit.new("r", "red", types["infantry_platoon"], Vector2(70, 12)))
+	line.reserves.append("r")
+	b.unit_by_id("u0").morale = 10.0
+	b.step()
+	check(line.reserves.has("r") and r.move_target == null, "다섯 턴 안에 닿지 못하는 예비대는 전선 반대쪽 끝으로 가지 않는다")
+	check(line.open_gaps(b) == 1, "메우지 못한 구멍을 센다")
+	b.unit_by_id("u2").morale = 10.0
+	b.step()
+	check(line.units.has("r"), "제 구간의 구멍에는 간다")
+
+
 func test_units_face_enemy_after_small_adjustment() -> void:
 	var b := _battle_with_line(1)
 	var u := b.unit_by_id("u0")
