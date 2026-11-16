@@ -72,6 +72,23 @@ func test_no_direct_fire_into_melee_tile() -> void:
 	check(red2.cooldowns["rifle"] == 0, "밖의 부대는 근접전 칸에 직사하지 않는다")
 
 
+func test_melee_continues_when_the_men_on_that_tile_are_gone() -> void:
+	var b := _battle()
+	var inf := b.add_unit(BattleUnit.new("inf", "red", types["infantry_platoon"], Vector2(10, 10), Vector2.UP, "line", 8))
+	var gun := b.add_unit(BattleUnit.new("gun", "blue", types["at_gun"], Vector2(10, 10), Vector2.DOWN))
+	var tiles := inf.tiles()
+	var shared := gun.tiles()[0]
+	check(tiles.has(shared), "두 부대가 한 칸을 같이 쓴다")
+	for i in inf.elements.size():
+		if inf.element_tile(i, tiles) == shared:
+			inf.elements[i]["hp"] = 0.0
+	for i in 300:
+		b.step()
+		if gun.alive_count("man") == 0:
+			break
+	check(gun.alive_count("man") == 0, "그 칸을 맡은 병사가 쓰러져도 옆 병사들이 근접전을 끝낸다 (남은 포반 %d명)" % gun.alive_count("man"))
+
+
 func test_melee_unit_can_only_retreat() -> void:
 	var b := _battle()
 	var inf: UnitType = types["infantry_platoon"]
@@ -471,3 +488,19 @@ func test_panicked_infantry_is_harder_to_hit() -> void:
 	check(not Battle.is_prone(u), "멀쩡한 소대는 서 있다")
 	u.morale = 30.0
 	check(Battle.is_prone(u), "패닉에 빠진 소대는 엎드린다")
+
+
+func test_at_gun_fires_at_spotted_tanks_but_not_spotted_infantry() -> void:
+	# 대전차포 시야(16칸) 밖, 아군 보병 시야 안. 보병만 있으면 쏘지 않는다.
+	var b := _battle()
+	var gun := b.add_unit(BattleUnit.new("g", "red", types["at_gun"], Vector2(10, 38), Vector2.UP))
+	b.add_unit(BattleUnit.new("spot", "red", types["infantry_platoon"], Vector2(22, 28), Vector2.UP, "line", 6))
+	var foot := b.add_unit(BattleUnit.new("f", "blue", types["infantry_platoon"], Vector2(10, 12), Vector2.DOWN, "line", 6))
+	for i in 30:
+		b.step()
+	check(b.side_knows("red", foot) and not b.can_see(gun, foot), "아군이 본 적 보병이지만 대전차포 눈에는 안 보인다")
+	check(gun.last_fire_tick < 0, "멀리 있는 보병은 쏘지 않는다 (자리를 드러내지 않는다)")
+	var tank := b.add_unit(BattleUnit.new("t", "blue", types["medium_tank_platoon"], Vector2(14, 14), Vector2.DOWN, "line", 3))
+	for i in 30:
+		b.step()
+	check(gun.last_target == tank.id, "아군이 본 적 전차는 멀리서도 쏜다")

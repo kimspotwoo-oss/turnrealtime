@@ -45,6 +45,7 @@
 		{"id": "a_tank2", "side": "ai", "type": "medium_tank_platoon", "pos": [34, 5], "facing": [0, 1], "formation": "line", "stance": "attack"},
 		{"id": "a_at1", "side": "ai", "type": "at_gun", "pos": [20, 11], "facing": [0, 1], "stance": "hold"},
 		{"id": "a_at2", "side": "ai", "type": "at_gun", "pos": [40, 11], "facing": [0, 1], "stance": "hold"},
+		{"id": "a_at3", "side": "ai", "type": "at_gun", "pos": [30, 12], "facing": [0, 1], "stance": "hold", "only": "hard"},
 		{"id": "a_mortar1", "side": "ai", "type": "mortar_platoon", "pos": [26, 2], "facing": [0, 1], "stance": "hold"},
 		{"id": "a_mortar2", "side": "ai", "type": "mortar_platoon", "pos": [34, 2], "facing": [0, 1], "stance": "hold"}
 	],

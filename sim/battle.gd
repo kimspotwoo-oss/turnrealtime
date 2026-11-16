@@ -654,8 +654,8 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 
 
 ## 직사 표적. 대전차 무기는 전차를 먼저, 그다음 나를 쏘는 적, 가까운 적 순이다.
-## 패주·패닉한 적은 다른 표적이 없을 때만 쏜다. 대전차포 같은 견인포는 아군이 본 적도
-## 자기 자리에서 시선이 트여 있으면 쏠 수 있다 (명중률은 낮다).
+## 패주·패닉한 적은 다른 표적이 없을 때만 쏜다. 대전차포 같은 견인포는 아군이 본 적 전차도
+## 자기 자리에서 시선이 트여 있으면 쏠 수 있다 (명중률은 낮다). 보병과 포는 제 눈에 보일 때만 쏜다.
 func _pick_direct_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 	var best: BattleUnit = null
 	var best_score := INF
@@ -672,7 +672,8 @@ func _pick_direct_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 		if can_see(u, e):
 			if u.reaction.get(eid, 1) > 0:
 				continue
-		elif map.line_blocked(u.nearest_tile_to(e.center), e.nearest_tile_to(u.center)):
+		elif not e.type.is_vehicle() or map.line_blocked(u.nearest_tile_to(e.center), e.nearest_tile_to(u.center)):
+			# 제 눈에 안 보이는 적은 전차일 때만 쏜다. 멀리 있는 보병을 쏘다가 자리를 드러내지 않는다.
 			continue
 		var d := distance_between(u, e)
 		if d > w.range_tiles:
@@ -854,11 +855,20 @@ func _melee_attack(a: BattleUnit, b: BattleUnit, tile: Vector2i, hits: Array[Dic
 			hits.append(_hit(b, idx, b.elements[idx]["max_hp"], 0.0, a, false))
 
 
+## 그 칸에서 싸우는 구성원. 그 칸을 맡은 사람이 다 쓰러졌으면 가까운 칸의 사람들이 메운다.
+## 그러지 않으면 칸은 같이 쓰는데 싸울 사람이 없어서, 서로 쏘지도 못한 채 근접전이 끝나지 않는다.
 func _indices_on_tile(u: BattleUnit, unit_tiles: Array[Vector2i], tile: Vector2i, kind: String) -> Array[int]:
 	var out: Array[int] = []
-	for i in u.alive_indices(kind):
+	var alive := u.alive_indices(kind)
+	for i in alive:
 		if u.element_tile(i, unit_tiles) == tile:
 			out.append(i)
+	if out.is_empty() and not alive.is_empty() and unit_tiles.has(tile):
+		alive.sort_custom(func(x, y):
+			var dx := Vector2(u.element_tile(x, unit_tiles)).distance_squared_to(Vector2(tile))
+			var dy := Vector2(u.element_tile(y, unit_tiles)).distance_squared_to(Vector2(tile))
+			return dx < dy or (dx == dy and x < y))
+		out = alive.slice(0, maxi(1, ceili(float(alive.size()) / unit_tiles.size())))
 	return out
 
 
