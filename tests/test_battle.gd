@@ -291,6 +291,25 @@ func test_firing_reveals_shooter_to_target() -> void:
 	check(b.can_see(tank, gun), "쏘면 맞은 쪽에 위치가 드러난다")
 
 
+func test_enemy_count_is_known_only_inside_friendly_sight() -> void:
+	var b := _battle()
+	b.map.fill_rect(Rect2i(0, 18, 40, 3), "forest")
+	var gun := b.add_unit(BattleUnit.new("g", "red", types["at_gun"], Vector2(10, 19), Vector2.DOWN))
+	var tank := b.add_unit(BattleUnit.new("t", "blue", types["medium_tank_platoon"], Vector2(10, 38), Vector2.UP, "line", 3))
+	var open := b.add_unit(BattleUnit.new("o", "red", types["at_gun"], Vector2(14, 30), Vector2.DOWN))
+	b.step()
+	check(b.side_sees("blue", open), "시야 안의 적은 병력 수까지 안다")
+	check(not b.side_knows("blue", gun) and not b.side_sees("blue", gun), "숲 속 적은 모른다")
+	gun.last_target = "t"
+	gun.last_fire_tick = b.tick
+	b.step()
+	check(b.side_knows("blue", gun), "쏜 적은 자리가 드러난다")
+	check(not b.side_sees("blue", gun), "시야 밖에서 자리만 드러난 적의 병력 수는 모른다")
+	tank.center = Vector2(10, 30)
+	b.step()
+	check(b.side_sees("blue", gun), "시야 안으로 들어오면 병력 수도 안다")
+
+
 func test_tank_drives_around_forest() -> void:
 	var b := _battle()
 	b.map.fill_rect(Rect2i(5, 15, 10, 3), "forest")

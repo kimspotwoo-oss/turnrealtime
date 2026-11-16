@@ -75,6 +75,8 @@ var _occupancy := {}
 var _visible := {}
 ## 진영 → {진영 누군가 본 적 id: true}. 간접 사격은 이걸로 쏜다.
 var _side_known := {}
+## 진영 → {진영 누군가 시야 안에서 직접 보고 있는 적 id: true}. _side_known 의 부분집합이다.
+var _side_seen := {}
 
 
 func _init(p_map: BattleMap, seed_value := 0) -> void:
@@ -101,6 +103,12 @@ func can_see(viewer: BattleUnit, target: BattleUnit) -> bool:
 
 func side_knows(side: String, target: BattleUnit) -> bool:
 	return _side_known.get(side, {}).has(target.id)
+
+
+## 그 진영의 누군가가 지금 제 눈으로 보고 있는가. 총구 화염으로 자리만 드러난 적은 아니다.
+## 화면은 이럴 때만 적의 병력 수를 보여 준다.
+func side_sees(side: String, target: BattleUnit) -> bool:
+	return _side_seen.get(side, {}).has(target.id)
 
 
 ## 그 진영이 지금 아는 적. AI 는 이것만 보고 판단한다.
@@ -423,11 +431,19 @@ func in_melee(u: BattleUnit) -> bool:
 
 func _update_vision() -> void:
 	_side_known.clear()
+	_side_seen.clear()
 	for u in units:
 		var seen := {}
 		if u.is_alive():
 			for e in units:
-				if e.side != u.side and (_sees(u, e) or _revealed_by_fire(u, e)):
+				if e.side == u.side:
+					continue
+				if _sees(u, e):
+					seen[e.id] = true
+					if not _side_seen.has(u.side):
+						_side_seen[u.side] = {}
+					_side_seen[u.side][e.id] = true
+				elif _revealed_by_fire(u, e):
 					seen[e.id] = true
 		var extra: int = Morale.EXTRA_REACTION[u.state()]
 		if u.formation == "dispersed":

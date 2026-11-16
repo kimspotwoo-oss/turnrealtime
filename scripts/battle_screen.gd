@@ -945,8 +945,15 @@ func _draw_unseen(u: BattleUnit) -> void:
 
 ## 고른 아군의 명령: 찾은 길을 따라 이동 목표와 경유점까지 점선, 후퇴지, 포격 지점.
 ## 기호 아래의 전력 막대. 전차·포는 한 대(문)에 한 칸, 보병은 남은 비율만큼 채운다.
-## 초록(2/3 넘게) → 노랑 → 빨강(1/3 아래). 아군은 남은 수도 숫자로 적는다.
+## 초록(2/3 넘게) → 노랑 → 빨강(1/3 아래). 남은 수도 숫자로 적는다. 적은 아군 시야 안에 있을 때만
+## 막대와 수가 보이고, 총구 화염으로 자리만 드러난 적은 빈 막대에 "?" 다.
 func _draw_strength(u: BattleUnit, c: Vector2) -> void:
+	if not strength_known(u):
+		var bw := SYMBOL_PX * 1.5
+		var bo := c + Vector2(-bw / 2.0, SYMBOL_PX * 0.62)
+		draw_rect(Rect2(bo - Vector2(1, 1), Vector2(bw + 2, 7.0)), Color(0, 0, 0, 0.85))
+		_draw_label(bo + Vector2(bw + 3, 8.0), "?", Color.WHITE, 11)
+		return
 	var kind := strength_kind(u)
 	var alive := u.alive_count(kind)
 	var total := maxi(u.initial_count(kind), 1)
@@ -963,12 +970,17 @@ func _draw_strength(u: BattleUnit, c: Vector2) -> void:
 				draw_rect(Rect2(o + Vector2(i * pip + 0.5, 0), Vector2(pip - 1.0, h)), color)
 	else:
 		draw_rect(Rect2(o, Vector2(w * frac, h)), color)
+	_draw_label(o + Vector2(w + 3, h + 3), str(alive), Color.WHITE, 11)
 	if u.side == PLAYER_SIDE or show_all:
-		_draw_label(o + Vector2(w + 3, h + 3), str(alive), Color.WHITE, 11)
 		# 포를 잃은 포병·대전차포는 사람이 남아 있어도 쏘지 못한다. 막대만 보면 멀쩡해 보이므로 따로 적는다.
 		var guns := u.initial_count("gun")
 		if guns > 0 and u.alive_count("gun") < guns:
 			_draw_label(o + Vector2(0, h + 14), "포 %d/%d" % [u.alive_count("gun"), guns], Color(1.0, 0.3, 0.2), 11)
+
+
+## 병력 수를 알 수 있는 부대인가: 아군, 그리고 아군 누군가의 시야 안에 있는 적.
+func strength_known(u: BattleUnit) -> bool:
+	return u.side == PLAYER_SIDE or show_all or battle.side_sees(PLAYER_SIDE, u)
 
 
 ## 전력으로 세는 것: 전차 부대는 전차, 나머지는 사람.
@@ -1430,9 +1442,10 @@ func _refresh_context() -> void:
 	if first.side != PLAYER_SIDE:
 		_ctx_title.text += " (적)"
 	var frac := float(alive) / maxi(total, 1)
-	_ctx_strength.value = frac
+	var counted := units.all(strength_known)
+	_ctx_strength.value = frac if counted else 0.0
 	(_ctx_strength.get_theme_stylebox("fill") as StyleBoxFlat).bg_color = _level_color(frac)
-	_ctx_strength_label.text = "%d / %d" % [alive, total]
+	_ctx_strength_label.text = "%d / %d" % [alive, total] if counted else "모름 (시야 밖)"
 	var known := own.size() == units.size() or show_all
 	_ctx_morale.value = morale / 100.0 if known else 0.0
 	(_ctx_morale.get_theme_stylebox("fill") as StyleBoxFlat).bg_color = _level_color(morale / 100.0)
@@ -1680,7 +1693,7 @@ func _describe_selection() -> String:
 	var u := selected[0]
 	var lines: Array[String] = ["%s  %s" % [u.type.name, u.id]]
 	var kinds := "vehicle" if u.type.is_vehicle() else "man"
-	lines.append("병력 %d / %d" % [u.alive_count(kinds), u.initial_count(kinds)])
+	lines.append("병력 %d / %d" % [u.alive_count(kinds), u.initial_count(kinds)] if strength_known(u) else "병력 모름 (아군 시야 밖, 사격으로 위치만 드러남)")
 	if u.initial_count("gun") > 0 and (u.side == PLAYER_SIDE or show_all):
 		lines.append("포 %d / %d문" % [u.alive_count("gun"), u.initial_count("gun")])
 	var ranges: Array[String] = []
