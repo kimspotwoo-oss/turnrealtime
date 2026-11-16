@@ -26,7 +26,7 @@ const ATTACK_CLOSE_FRACTION := 0.3
 const MOVING_ACCURACY := 0.5
 ## 움직이는 표적을 쏠 때 명중률 배수.
 const MOVING_TARGET_ACCURACY := 0.6
-## 제압돼 엎드린 보병은 맞을 확률이 절반.
+## 제압되거나 패닉에 빠져 엎드린 보병은 맞을 확률이 절반.
 const PRONE_ACCURACY := 0.5
 ## 포탄 폭발: 떨어진 칸 인원이 맞을 확률. 폭발 반경 안의 다른 칸은 BLAST_EDGE_FACTOR 배.
 const BLAST_HIT_CHANCE := 0.15
@@ -226,10 +226,13 @@ func _move() -> void:
 				if not u.waypoints.is_empty():
 					u.move_target = u.waypoints.pop_front()
 				else:
+					var reversed := u.reverse_move
 					u.move_target = null
 					u.reverse_move = false
 					if u.arrive_facing != null:
 						u.facing = u.arrive_facing
+					elif not reversed:
+						_face_known_enemy(u)
 			_settle(u)
 			continue
 		var remaining := to.length()
@@ -293,6 +296,22 @@ func _chase_point(u: BattleUnit) -> Variant:
 		return null
 	# 칸 단위로 맞춰서, 표적이 조금 움직일 때마다 길을 다시 찾지 않게 한다.
 	return foe.center.round()
+
+
+## 방향을 따로 정하지 않고 도착한 부대는 아는 적 가운데 가장 가까운 쪽을 본다. 걸어온 방향을
+## 그대로 보고 서면 옆으로 옮긴 대전차포가 방패를 엉뚱한 데로 두고 전개한다.
+func _face_known_enemy(u: BattleUnit) -> void:
+	var best: BattleUnit = null
+	var best_d := INF
+	for e in known_enemies(u.side):
+		if e.state() == Morale.State.ROUTED:
+			continue
+		var d := u.center.distance_squared_to(e.center)
+		if d < best_d:
+			best_d = d
+			best = e
+	if best != null and not best.center.is_equal_approx(u.center):
+		u.facing = (best.center - u.center).normalized()
 
 
 ## 목표까지 가는 길에서 지금 향할 점. 목표가 바뀌면 길을 새로 찾는다.
@@ -601,7 +620,7 @@ func _fire_direct(u: BattleUnit, w: WeaponType, n: int, hits: Array[Dictionary])
 		match e["kind"]:
 			"man":
 				var chance: float = acc * w.soft_accuracy * map.props(target.element_tile(idx, target_tiles))["cover"]
-				if target.is_suppressed():
+				if is_prone(target):
 					chance *= PRONE_ACCURACY
 				if rng.randf() < chance:
 					hits.append(_hit(target, idx, w.damage, 0.0, u, false))
@@ -663,6 +682,11 @@ func _pick_direct_target(u: BattleUnit, w: WeaponType) -> BattleUnit:
 			best_score = score
 			best = e
 	return best
+
+
+## 제압됐거나 패닉에 빠진 보병은 땅에 엎드려 있다. 싸우지는 못해도 덜 맞는다.
+static func is_prone(u: BattleUnit) -> bool:
+	return u.is_suppressed() or u.state() == Morale.State.PANIC
 
 
 ## 한 발이 노리는 구성원. 대전차 무기는 차량·포를, 소화기는 사람을 먼저 노린다.
@@ -863,7 +887,7 @@ func _explode(s: Dictionary, hits: Array[Dictionary]) -> void:
 			var e := u.elements[i]
 			if e["kind"] == "man":
 				var chance: float = BLAST_HIT_CHANCE * factor * map.props(et)["cover"]
-				if u.is_suppressed():
+				if is_prone(u):
 					chance *= PRONE_ACCURACY
 				if rng.randf() < chance:
 					hits.append(_hit(u, i, w.damage, 0.0, s["attacker"], false))

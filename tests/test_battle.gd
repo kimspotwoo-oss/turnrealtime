@@ -427,3 +427,28 @@ func test_hold_gun_keeps_moving_until_enemy_is_within_sight() -> void:
 		b.step()
 	check(b.side_knows("red", foe), "아군이 적을 보고 있다")
 	check(gun.center.y < 37.0 and gun.hold_reason != "engaged", "저지 태세 포는 시야 밖(30칸)의 적 때문에 멈추지 않는다: %s" % gun.center)
+
+
+func test_arriving_unit_faces_nearest_known_enemy() -> void:
+	var b := _battle()
+	var gun := b.add_unit(BattleUnit.new("gun", "red", types["at_gun"], Vector2(10, 30), Vector2.UP))
+	var foe := b.add_unit(BattleUnit.new("foe", "blue", types["infantry_platoon"], Vector2(14, 16), Vector2.DOWN))
+	gun.stance = BattleUnit.Stance.IGNORE
+	foe.stance = BattleUnit.Stance.IGNORE
+	Orders.move(gun, Vector2(14, 30))
+	for i in 100:
+		b.step()
+	check(gun.move_target == null, "도착했다")
+	check(gun.facing.dot(Vector2.UP) > 0.9, "옆으로 걸어와도 도착하면 적 쪽을 본다: %s" % gun.facing)
+	Orders.move(gun, Vector2(18, 30))
+	Orders.face(gun, Vector2(40, 30))
+	for i in 100:
+		b.step()
+	check(gun.facing.is_equal_approx(Vector2.RIGHT), "방향 명령이 있으면 그 방향이 우선한다")
+
+
+func test_panicked_infantry_is_harder_to_hit() -> void:
+	var u := BattleUnit.new("u", "red", types["infantry_platoon"], Vector2(10, 10))
+	check(not Battle.is_prone(u), "멀쩡한 소대는 서 있다")
+	u.morale = 30.0
+	check(Battle.is_prone(u), "패닉에 빠진 소대는 엎드린다")

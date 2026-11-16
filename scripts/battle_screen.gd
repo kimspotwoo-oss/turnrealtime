@@ -168,8 +168,12 @@ func load_stage(path: String) -> void:
 	running = false
 	report = ""
 	_terrain_tex = _make_terrain_texture(battle.map)
-	# 오른쪽 명령 칸만큼 지도를 왼쪽으로 비켜 보여 준다.
-	_camera.position = Vector2(battle.map.width, battle.map.height) * TILE_PX / 2.0 + Vector2(150, -20)
+	# 지도 전체가 한 화면에 들어오게 줄이고, 오른쪽 명령 칸만큼 왼쪽으로 비켜 보여 준다.
+	var map_px := Vector2(battle.map.width, battle.map.height) * TILE_PX
+	var room := get_viewport_rect().size - Vector2(300 + 20, 60)
+	var fit := minf(1.0, minf(room.x / map_px.x, room.y / map_px.y))
+	_camera.zoom = Vector2(fit, fit)
+	_camera.position = map_px / 2.0 + Vector2(150, -20) / fit
 	_refresh_ui()
 	queue_redraw()
 

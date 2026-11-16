@@ -3,8 +3,8 @@ extends TestCase
 
 func test_practice_stage_loads() -> void:
 	var b := StageLoader.load_file("res://data/stages/practice.json")
-	check(b.map.width == 60 and b.map.height == 40, "60×40칸")
-	check(b.turn_limit == 25, "25턴 제한")
+	check(b.map.width == 60 and b.map.height == 50, "60×50칸")
+	check(b.turn_limit == 28, "28턴 제한")
 	var per_side := {}
 	for u in b.units:
 		per_side[u.side] = per_side.get(u.side, 0) + 1
